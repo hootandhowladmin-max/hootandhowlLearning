@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Firebase Test</title>
+</head>
+<body>
+  <h1>Firebase Setup Test</h1>
+  <div id="log"></div>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const log = document.getElementById("log");
+    function addLog(msg, isError = false) {
+      const p = document.createElement("p");
+      p.style.color = isError ? "red" : "black";
+      p.textContent = msg;
+      log.appendChild(p);
+      console.log(msg);
+    }
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBDw1JNngrDknWqGNV-7HU6o0xuLPw58ZA",
+      authDomain: "hhadmin.firebaseapp.com",
+      projectId: "hhadmin",
+      storageBucket: "hhadmin.firebasestorage.app",
+      messagingSenderId: "599886298920",
+      appId: "1:599886298920:web:10e0d3b643b3bf1439da1d"
+    };
+
+    addLog("🔄 Initializing Firebase...");
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    addLog("✅ Firebase initialized!");
+
+    // Test login
+    const testEmail = prompt("Enter your test email (e.g., prem@hoothowl.com):");
+    const testPassword = prompt("Enter your test password:");
+
+    if (testEmail && testPassword) {
+      addLog(`🔐 Testing login for ${testEmail}...`);
+      try {
+        const userCred = await signInWithEmailAndPassword(auth, testEmail, testPassword);
+        addLog(`✅ Login successful! UID: ${userCred.user.uid}`);
+
+        addLog(`📄 Checking for admin doc at admins/${userCred.user.uid}...`);
+        const adminDoc = await getDoc(doc(db, "admins", userCred.user.uid));
+        if (adminDoc.exists()) {
+          addLog("✅ Admin doc found! Data: " + JSON.stringify(adminDoc.data()));
+        } else {
+          addLog("❌ Admin doc NOT FOUND! Please create a document at admins/" + userCred.user.uid + " in Firestore with branch, name, etc.", true);
+        }
+      } catch (error) {
+        addLog("❌ Error: " + error.message, true);
+      }
+    }
+  </script>
+</body>
+</html>
