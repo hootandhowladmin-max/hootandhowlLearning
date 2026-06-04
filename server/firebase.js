@@ -6,6 +6,11 @@ let db = null;
 let auth = null;
 let FIREBASE_READY = false;
 
+console.log('[Firebase] Checking env vars:');
+console.log('  FIREBASE_PROJECT_ID:', process.env.FIREBASE_PROJECT_ID ? '✅ set' : '❌ missing');
+console.log('  FIREBASE_CLIENT_EMAIL:', process.env.FIREBASE_CLIENT_EMAIL ? '✅ set' : '❌ missing');
+console.log('  FIREBASE_PRIVATE_KEY:', process.env.FIREBASE_PRIVATE_KEY ? '✅ set' : '❌ missing');
+
 try {
   // Use environment variables for Firebase config (for Render)
   if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
@@ -28,12 +33,13 @@ try {
     db = admin.firestore();
     auth = admin.auth();
     FIREBASE_READY = true;
-    console.log('[Firebase] Admin initialized from env vars');
+    console.log('[Firebase] Admin initialized successfully from env vars');
   } else {
     console.warn('[Firebase] Firebase env vars not set. Firebase features will be disabled until provided.');
   }
 } catch (err) {
   console.error('[Firebase] Initialization error:', err.message);
+  console.error('[Firebase] Full error:', err);
   FIREBASE_READY = false;
 }
 
