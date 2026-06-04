@@ -1,4 +1,3 @@
-const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -8,19 +7,30 @@ let auth = null;
 let FIREBASE_READY = false;
 
 try {
-  const keyPath = path.join(__dirname, 'serviceAccountKey.json');
-  if (!fs.existsSync(keyPath)) {
-    console.warn('[Firebase] serviceAccountKey.json not found in /server. Firebase features will be disabled until provided.');
-  } else {
-    const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf-8'));
+  // Use environment variables for Firebase config (for Render)
+  if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
+    const serviceAccount = {
+      type: "service_account",
+      project_id: process.env.FIREBASE_PROJECT_ID,
+      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+      private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      client_email: process.env.FIREBASE_CLIENT_EMAIL,
+      client_id: process.env.FIREBASE_CLIENT_ID,
+      auth_uri: "https://accounts.google.com/o/oauth2/auth",
+      token_uri: "https://oauth2.googleapis.com/token",
+      auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+      client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL
+    };
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
-      projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount.project_id
+      projectId: process.env.FIREBASE_PROJECT_ID
     });
     db = admin.firestore();
     auth = admin.auth();
     FIREBASE_READY = true;
-    console.log('[Firebase] Admin initialized');
+    console.log('[Firebase] Admin initialized from env vars');
+  } else {
+    console.warn('[Firebase] Firebase env vars not set. Firebase features will be disabled until provided.');
   }
 } catch (err) {
   console.error('[Firebase] Initialization error:', err.message);
