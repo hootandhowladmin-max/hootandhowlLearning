@@ -19,13 +19,56 @@ if (isMailerReady) {
 }
 
 async function sendMail({ to, subject, html, text, attachments }) {
-  if (!transporter) throw new Error('Mailer not configured');
+  console.log('=================================================');
+  console.log('📧 [sendMail] STARTING!');
+  console.log('To:', to);
+  console.log('Subject:', subject);
+  console.log('Text length:', (text || '').length);
+  console.log('HTML length:', (html || '').length);
+  console.log('Attachments:', attachments ? attachments.length : 0);
+  console.log('Transporter exists:', !!transporter);
+  console.log('SMTP_USER:', process.env.SMTP_USER || 'NOT SET');
+  
+  if (!transporter) {
+    console.error('[sendMail] ❌ ERROR: Transporter not configured!');
+    throw new Error('Mailer not configured');
+  }
+  
   const fromAddress = SMTP_FROM || `"Hoot & Howl Learning" <${SMTP_USER}>`;
-  const info = await transporter.sendMail({
-    from: fromAddress,
-    to, subject, text, html, attachments
-  });
-  return info;
+  console.log('From address:', fromAddress);
+  
+  try {
+    console.log('[sendMail] 📤 Calling transporter.sendMail...');
+    const info = await transporter.sendMail({
+      from: fromAddress,
+      to,
+      subject,
+      text: text || subject,
+      html,
+      attachments
+    });
+    
+    console.log('[sendMail] ✅ SUCCESS!');
+    console.log('Message ID:', info.messageId);
+    console.log('Response:', info.response);
+    console.log('Accepted:', info.accepted);
+    console.log('Rejected:', info.rejected);
+    console.log('Pending:', info.pending);
+    console.log('=================================================');
+    
+    return info;
+  } catch (err) {
+    console.error('=================================================');
+    console.error('[sendMail] ❌ ERROR SENDING EMAIL!');
+    console.error('Error name:', err.name);
+    console.error('Error message:', err.message);
+    console.error('Error code:', err.code);
+    console.error('Error command:', err.command);
+    console.error('Full error:', err);
+    if (err.stack) console.error('Stack trace:', err.stack);
+    console.error('=================================================');
+    throw err;
+  }
 }
 
 module.exports = { sendMail, isMailerReady };
