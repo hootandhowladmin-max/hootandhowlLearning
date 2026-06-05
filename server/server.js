@@ -4,7 +4,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 
 const { db, auth, FIREBASE_READY } = require('./firebase');
 const { sendMail, isMailerReady } = require('./mailer');
@@ -186,6 +186,7 @@ async function generateInvoicePDF(invoice) {
   
   // Launch Puppeteer and generate PDF
   const browser = await puppeteer.launch({
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
