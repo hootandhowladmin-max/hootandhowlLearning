@@ -13,24 +13,22 @@ if (isMailerReady) {
   console.log('[Mailer] SMTP User:', SMTP_USER);
   
   transporter = nodemailer.createTransport({
-    host: SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(SMTP_PORT) || 465, // Try 465 for secure
-    secure: (parseInt(SMTP_PORT) || 465) === 465, // true for 465
+    host: '172.253.118.108', // Direct IPv4 of smtp.gmail.com
+    port: 465,
+    secure: true,
     auth: { 
       user: SMTP_USER, 
       pass: SMTP_PASS 
     },
     tls: {
-      rejectUnauthorized: false // To avoid self-signed cert issues
+      rejectUnauthorized: false,
+      servername: 'smtp.gmail.com'
     },
-    debug: true, // Show debug output
-    logger: true, // Log to console
-    pool: true, // Use connection pooling
-    maxConnections: 5,
-    family: 4, // Force IPv4!
-    connectionTimeout: 30000, // 30 seconds
-    greetingTimeout: 30000, // 30 seconds
-    socketTimeout: 30000 // 30 seconds
+    debug: true,
+    logger: true,
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 30000
   });
   
   // Verify connection
