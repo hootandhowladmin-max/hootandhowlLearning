@@ -143,21 +143,26 @@
 body{font-family:var(--font);color:var(--ink);background:var(--paper2);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;}
 
 /* ─── LOCK SCREEN ─── */
-#lockScreen{position:fixed;inset:0;z-index:9999;display:flex !important;align-items:center;justify-content:center;background:var(--navy3);background-image:radial-gradient(ellipse at 30% 20%,rgba(191,140,64,.15) 0%,transparent 60%),radial-gradient(ellipse at 80% 80%,rgba(37,99,235,.08) 0%,transparent 60%);}
-#lockScreen .lock-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(20px);border-radius:20px;padding:52px 44px;width:420px;text-align:center;box-shadow:0 32px 80px rgba(0,0,0,.5);}
-#lockScreen .lock-logo{width:60px;height:60px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;}
-#lockScreen .lock-title{font-family:var(--display);font-size:28px;font-weight:600;color:#fff;margin-bottom:6px;letter-spacing:-.5px;}
-#lockScreen .lock-subtitle{font-size:13px;color:rgba(255,255,255,.4);margin-bottom:36px;}
-#lockScreen .lock-field{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:14px 16px;font-size:14px;color:#fff;font-family:var(--font);outline:none;transition:var(--transition);margin-bottom:12px;}
-#lockScreen .lock-field:focus{border-color:rgba(191,140,64,.5);background:rgba(255,255,255,.09);}
-#lockScreen .lock-field::placeholder{color:rgba(255,255,255,.3);}
-#lockScreen .lock-btn{width:100%;background:linear-gradient(135deg,var(--gold) 0%,var(--gold-lt) 100%);border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;color:var(--navy3);cursor:pointer;font-family:var(--font);transition:var(--transition);letter-spacing:.2px;display:flex;align-items:center;justify-content:center;gap:10px;}
-#lockScreen .lock-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(191,140,64,.4);}
+#lockScreen{position:fixed;inset:0;z-index:9999;display:flex !important;align-items:center;justify-content:center;background:var(--navy3);background-image:radial-gradient(ellipse at 30% 20%,rgba(191,140,64,.18) 0%,transparent 60%),radial-gradient(ellipse at 80% 80%,rgba(37,99,235,.10) 0%,transparent 60%),linear-gradient(135deg,#0F1E38 0%,#1B2B4B 50%,#0F1E38 100%);}
+#lockScreen .lock-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(24px);border-radius:24px;padding:48px 40px;width:440px;text-align:center;box-shadow:0 40px 100px rgba(0,0,0,.60),0 0 0 1px rgba(255,255,255,.04) inset;}
+#lockScreen .lock-logo{width:80px;height:80px;border-radius:18px;display:flex;align-items:center;justify-content:center;margin:0 auto 24px;background:linear-gradient(135deg,rgba(191,140,64,.20),rgba(37,99,235,.10));border:1px solid rgba(255,255,255,.08);}
+#lockScreen .lock-logo img{width:60px;height:75px;object-fit:contain;}
+#lockScreen .lock-title{font-family:var(--display);font-size:32px;font-weight:700;color:#fff;margin-bottom:8px;letter-spacing:-.6px;}
+#lockScreen .lock-subtitle{font-size:14px;color:rgba(255,255,255,.45);margin-bottom:32px;}
+#lockScreen .lock-field{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:16px 18px;font-size:15px;color:#fff;font-family:var(--font);outline:none;transition:var(--transition);margin-bottom:14px;}
+#lockScreen .lock-field:focus{border-color:rgba(191,140,64,.70);background:rgba(255,255,255,.09);box-shadow:0 0 0 4px rgba(191,140,64,.12);}
+#lockScreen .lock-field::placeholder{color:rgba(255,255,255,.38);}
+#lockScreen .lock-btn{width:100%;background:linear-gradient(135deg,var(--gold) 0%,var(--gold-lt) 100%);border:none;border-radius:12px;padding:16px;font-size:16px;font-weight:700;color:var(--navy3);cursor:pointer;font-family:var(--font);transition:var(--transition);letter-spacing:.2px;display:flex;align-items:center;justify-content:center;gap:10px;}
+#lockScreen .lock-btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(191,140,64,.50);}
+#lockScreen .lock-btn:active{transform:translateY(0px);}
 #lockScreen .lock-btn:disabled{opacity:.6;cursor:not-allowed;}
-#lockScreen .lock-loader{width:18px;height:18px;border:2px solid rgba(27,43,75,.3);border-top-color:#1B2B4B;border-radius:50%;animation:spin 1s linear infinite;}
+#lockScreen .lock-loader{width:20px;height:20px;border:2px solid rgba(27,43,75,.30);border-top-color:#1B2B4B;border-radius:50%;animation:spin 1s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
-#lockScreen .lock-err{font-size:12px;color:#F87171;margin-top:8px;height:18px;}
-#lockScreen .lock-hint{font-size:11px;color:rgba(255,255,255,.2);margin-top:20px;}
+#lockScreen .lock-err{font-size:13px;color:#F87171;margin-top:10px;height:20px;}
+#lockScreen .lock-hint{font-size:12px;color:rgba(255,255,255,.28);margin-top:24px;}
+#lockScreen .divider{display:flex;align-items:center;gap:14px;margin:24px 0 20px;}
+#lockScreen .divider-line{flex:1;height:1px;background:rgba(255,255,255,.12);}
+#lockScreen .divider-text{font-size:12px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;}
 
 /* ─── LAYOUT ─── */
 #app{display:none !important;height:100vh;overflow:hidden;}
@@ -603,16 +608,19 @@ body.dark .search-input,body.dark .filter-select{background:var(--paper2);}
 <div id="lockScreen">
   <div class="lock-card">
     <div class="lock-logo">
-      <img src="logo.png" alt="Hoot & Howl Logo" style="width:100px;height:125px;object-fit:contain">
+      <img src="logo.png" alt="Hoot & Howl Logo">
     </div>
     <div class="lock-title">Hoot &amp; Howl Learning</div>
-    <div class="lock-subtitle">School Management System</div>
-    <input type="email" id="lockUser" class="lock-field" placeholder="Enter email address" onkeydown="if(event.key==='Enter')document.getElementById('lockPass').focus()">
-    <input type="password" id="lockPass" class="lock-field" placeholder="Enter password" onkeydown="if(event.key==='Enter')unlock()">
+    <div class="lock-subtitle">Welcome back! Please sign in to continue.</div>
+    
+    <input type="email" id="lockUser" class="lock-field" placeholder="Email address" onkeydown="if(event.key==='Enter')document.getElementById('lockPass').focus()">
+    <input type="password" id="lockPass" class="lock-field" placeholder="Password" onkeydown="if(event.key==='Enter')unlock()">
+    
     <button class="lock-btn" id="lockBtn" onclick="unlock()">
-      <span id="lockBtnText">Sign In to Dashboard</span>
+      <span id="lockBtnText">Sign In</span>
       <div class="lock-loader" id="lockLoader" style="display:none"></div>
     </button>
+    
     <div class="lock-err" id="lockErr"></div>
   </div>
 </div>

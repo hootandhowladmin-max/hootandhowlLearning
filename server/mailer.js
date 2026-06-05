@@ -58,8 +58,9 @@ async function sendMail({ to, subject, html, text, attachments }) {
     throw new Error('No recipient email provided');
   }
   
-  const fromAddress = SMTP_FROM || (useSendGrid ? 'hootandhowladmin@gmail.com' : SMTP_USER);
-  const fromFormatted = SMTP_FROM || `"Hoot & Howl Learning" <${fromAddress}>`;
+  // Use pure email address for better deliverability
+  const fromEmail = 'hootandhowladmin@gmail.com';
+  const fromFormatted = SMTP_FROM || `"Hoot & Howl Learning" <${fromEmail}>`;
   console.log('From address:', fromFormatted);
   
   try {
@@ -69,7 +70,10 @@ async function sendMail({ to, subject, html, text, attachments }) {
       // Use SendGrid's official API
       const msg = {
         to: to,
-        from: fromFormatted,
+        from: {
+          email: fromEmail,
+          name: "Hoot & Howl Learning"
+        },
         subject: subject,
         text: text || subject,
         html: html

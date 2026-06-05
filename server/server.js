@@ -186,9 +186,9 @@ async function generateInvoicePDF(invoice) {
   
   // Launch Puppeteer and generate PDF
   const browser = await puppeteer.launch({
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
   });
   
   const page = await browser.newPage();
@@ -1124,8 +1124,12 @@ app.post('/api/invoice', async (req, res) => {
         
         // Only attach PDF for paid invoices
         if (invoiceData.status === 'paid') {
-          pdfBuffer = await generateInvoicePDF(invoiceData);
-          emailPayload.pdfBuffer = pdfBuffer;
+          try {
+            pdfBuffer = await generateInvoicePDF(invoiceData);
+            emailPayload.pdfBuffer = pdfBuffer;
+          } catch (pdfErr) {
+            console.error(`[POST /api/invoice] PDF generation failed (email will still send):`, pdfErr);
+          }
         } else if (invoiceData.status === 'overdue') {
           emailType = 'overdue';
         } else {
