@@ -11,13 +11,16 @@ try {
   if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
     let privateKey = process.env.FIREBASE_PRIVATE_KEY;
     
-    // Fix the private key format - handle both literal \n and actual newlines
-    privateKey = privateKey.replace(/\\n/g, '\n');
+    // Fix the private key format - handle literal \n, spaces, etc.
+    privateKey = privateKey
+      .replace(/\\n/g, '\n')
+      .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+      .replace(/-----END PRIVATE KEY-----/g, '')
+      .replace(/\s+/g, '\n')
+      .trim();
     
-    // Also ensure it starts with -----BEGIN PRIVATE KEY----- and ends with -----END PRIVATE KEY-----
-    if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
-      privateKey = '-----BEGIN PRIVATE KEY-----\n' + privateKey + '\n-----END PRIVATE KEY-----';
-    }
+    // Add the proper BEGIN and END lines
+    privateKey = '-----BEGIN PRIVATE KEY-----\n' + privateKey + '\n-----END PRIVATE KEY-----';
     
     const serviceAccount = {
       type: "service_account",
