@@ -2,50 +2,55 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const nodemailer = require('nodemailer');
 
-const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
-const isMailerReady = Boolean(SMTP_USER && SMTP_PASS);
+const { 
+  SENDGRID_API_KEY, 
+  SMTP_HOST, 
+  SMTP_PORT, 
+  SMTP_USER, 
+  SMTP_PASS, 
+  SMTP_FROM 
+} = process.env;
 
+let isMailerReady = false;
 let transporter = null;
-if (isMailerReady) {
-  console.log('[Mailer] Creating SMTP transporter...');
-  console.log('[Mailer] SMTP Host:', SMTP_HOST || 'smtp.gmail.com');
-  console.log('[Mailer] SMTP Port:', parseInt(SMTP_PORT) || 587);
-  console.log('[Mailer] SMTP User:', SMTP_USER);
+let useSendGrid = false;
+
+if (SENDGRID_API_KEY) {
+  console.log('[Mailer] Using SendGrid API...');
+  useSendGrid = true;
+  isMailerReady = true;
+  
+  // Use SendGrid's SMTP server which is reliable on Render
+  transporter = nodemailer.createTransport({
+    host: 'smtp.sendgrid.net',
+    port: 587,
+    secure: false, // true for 465, false for other ports
+    auth: {
+      user: 'apikey',
+      pass: SENDGRID_API_KEY
+    },
+    debug: true,
+    logger: true
+  });
+  
+} else if (SMTP_USER && SMTP_PASS) {
+  console.log('[Mailer] Using custom SMTP...');
+  isMailerReady = true;
   
   transporter = nodemailer.createTransport({
-    host: '172.253.118.108', // Direct IPv4 of smtp.gmail.com
-    port: 465,
-    secure: true,
-    auth: { 
-      user: SMTP_USER, 
-      pass: SMTP_PASS 
-    },
-    tls: {
-      rejectUnauthorized: false,
-      servername: 'smtp.gmail.com'
-    },
+    host: SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(SMTP_PORT) || 587,
+    secure: (parseInt(SMTP_PORT) || 587) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    tls: { rejectUnauthorized: false },
     debug: true,
     logger: true,
     connectionTimeout: 30000,
     greetingTimeout: 30000,
     socketTimeout: 30000
   });
-  
-  // Verify connection
-  console.log('[Mailer] Verifying transporter connection...');
-  transporter.verify(function(error, success) {
-    if (error) {
-      console.error('[Mailer] ❌ Transporter verification FAILED!');
-      console.error('[Mailer] Error:', error);
-    } else {
-      console.log('[Mailer] ✅ Transporter verification SUCCESS!');
-      console.log('[Mailer] Server is ready to take our messages!');
-    }
-  });
-  
-  console.log('[Mailer] SMTP transporter configured');
 } else {
-  console.warn('[Mailer] Missing SMTP_USER/SMTP_PASS in .env. Email features will be disabled.');
+  console.warn('[Mailer] No mailer configured! Set either SENDGRID_API_KEY or SMTP_USER/SMTP_PASS.');
 }
 
 async function sendMail({ to, subject, html, text, attachments }) {
@@ -53,22 +58,17 @@ async function sendMail({ to, subject, html, text, attachments }) {
   console.log('📧 [sendMail] STARTING!');
   console.log('To:', to);
   console.log('Subject:', subject);
-  console.log('Text length:', (text || '').length);
-  console.log('HTML length:', (html || '').length);
-  console.log('Attachments:', attachments ? attachments.length : 0);
-  console.log('Transporter exists:', !!transporter);
-  console.log('SMTP_USER:', process.env.SMTP_USER || 'NOT SET');
+  console.log('Using SendGrid:', useSendGrid);
   
-  if (!transporter) {
-    console.error('[sendMail] ❌ ERROR: Transporter not configured!');
+  if (!isMailerReady) {
+    console.error('[sendMail] ❌ ERROR: Mailer not configured!');
     throw new Error('Mailer not configured');
   }
   
-  const fromAddress = SMTP_FROM || `"Hoot & Howl Learning" <${SMTP_USER}>`;
+  const fromAddress = SMTP_FROM || `"Hoot & Howl Learning" <${useSendGrid ? 'noreply@hoothowl.com' : SMTP_USER}>`;
   console.log('From address:', fromAddress);
   
   try {
-    console.log('[sendMail] 📤 Calling transporter.sendMail...');
     const info = await transporter.sendMail({
       from: fromAddress,
       to,
@@ -81,20 +81,13 @@ async function sendMail({ to, subject, html, text, attachments }) {
     console.log('[sendMail] ✅ SUCCESS!');
     console.log('Message ID:', info.messageId);
     console.log('Response:', info.response);
-    console.log('Accepted:', info.accepted);
-    console.log('Rejected:', info.rejected);
-    console.log('Pending:', info.pending);
     console.log('=================================================');
     
     return info;
   } catch (err) {
     console.error('=================================================');
     console.error('[sendMail] ❌ ERROR SENDING EMAIL!');
-    console.error('Error name:', err.name);
     console.error('Error message:', err.message);
-    console.error('Error code:', err.code);
-    console.error('Error command:', err.command);
-    console.error('Full error:', err);
     if (err.stack) console.error('Stack trace:', err.stack);
     console.error('=================================================');
     throw err;
