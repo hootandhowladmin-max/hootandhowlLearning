@@ -7,12 +7,38 @@ const isMailerReady = Boolean(SMTP_USER && SMTP_PASS);
 
 let transporter = null;
 if (isMailerReady) {
+  console.log('[Mailer] Creating SMTP transporter...');
+  console.log('[Mailer] SMTP Host:', SMTP_HOST || 'smtp.gmail.com');
+  console.log('[Mailer] SMTP Port:', parseInt(SMTP_PORT) || 587);
+  console.log('[Mailer] SMTP User:', SMTP_USER);
+  
   transporter = nodemailer.createTransport({
     host: SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(SMTP_PORT) || 587,
-    secure: false,
-    auth: { user: SMTP_USER, pass: SMTP_PASS }
+    secure: false, // true for 465, false for other ports
+    auth: { 
+      user: SMTP_USER, 
+      pass: SMTP_PASS 
+    },
+    tls: {
+      rejectUnauthorized: false // To avoid self-signed cert issues
+    },
+    debug: true, // Show debug output
+    logger: true // Log to console
   });
+  
+  // Verify connection
+  console.log('[Mailer] Verifying transporter connection...');
+  transporter.verify(function(error, success) {
+    if (error) {
+      console.error('[Mailer] ❌ Transporter verification FAILED!');
+      console.error('[Mailer] Error:', error);
+    } else {
+      console.log('[Mailer] ✅ Transporter verification SUCCESS!');
+      console.log('[Mailer] Server is ready to take our messages!');
+    }
+  });
+  
   console.log('[Mailer] SMTP transporter configured');
 } else {
   console.warn('[Mailer] Missing SMTP_USER/SMTP_PASS in .env. Email features will be disabled.');
