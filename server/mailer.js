@@ -24,7 +24,10 @@ if (isMailerReady) {
       rejectUnauthorized: false // To avoid self-signed cert issues
     },
     debug: true, // Show debug output
-    logger: true // Log to console
+    logger: true, // Log to console
+    pool: true, // Use connection pooling
+    maxConnections: 5,
+    family: 4 // Force IPv4!
   });
   
   // Verify connection
