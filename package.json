@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node server/server.js",
-    "dev": "node server/server.js"
+    "dev": "node server/server.js",
+    "build": "node -e \"process.env.NODE_OPTIONS=''; require('child_process').execSync('npm install', {stdio: 'inherit'})\""
   },
   "keywords": [],
   "author": "",
