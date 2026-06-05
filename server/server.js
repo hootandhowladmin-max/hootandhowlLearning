@@ -807,13 +807,19 @@ app.post('/api/students', async (req, res) => {
 app.get('/api/students', async (req, res) => {
   try {
     const session = await verifySession(req);
+    console.log('[GET /api/students] Session:', session ? 'Valid' : 'Invalid');
     if (!session) return apiError(res, 'Unauthorized', 401);
+    
     const requestedBranch = req.query.branch || null;
     const collections = getCollectionsForAdmin(session, requestedBranch);
+    console.log('[GET /api/students] Collections:', collections);
     
     if (FIREBASE_READY) {
+      console.log('[GET /api/students] Fetching from Firestore at path:', collections.students);
       const snapshot = await db.collection(collections.students).get();
+      console.log('[GET /api/students] Found', snapshot.size, 'documents!');
       const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
+      console.log('[GET /api/students] Students data:', list);
       apiOk(res, list);
     } else {
       // Use JSON DB
@@ -822,7 +828,10 @@ app.get('/api/students', async (req, res) => {
       if (!data[branch]) data[branch] = { students: [], invoices: [], attendance: {} };
       apiOk(res, data[branch].students);
     }
-  } catch (err) { apiError(res, err.message); }
+  } catch (err) {
+    console.error('[GET /api/students] Error:', err);
+    apiError(res, err.message);
+  }
 });
 
 app.delete('/api/students/:id', async (req, res) => {
