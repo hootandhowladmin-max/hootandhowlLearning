@@ -1,5 +1,6 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
+const sgMail = require('@sendgrid/mail');
 const nodemailer = require('nodemailer');
 
 const { 
@@ -12,29 +13,16 @@ const {
 } = process.env;
 
 let isMailerReady = false;
-let transporter = null;
 let useSendGrid = false;
+let transporter = null;
 
 if (SENDGRID_API_KEY) {
-  console.log('[Mailer] Using SendGrid API...');
+  console.log('[Mailer] Using SendGrid Official API (most reliable on Render)');
   useSendGrid = true;
   isMailerReady = true;
-  
-  // Use SendGrid's SMTP server which is reliable on Render
-  transporter = nodemailer.createTransport({
-    host: 'smtp.sendgrid.net',
-    port: 587,
-    secure: false, // true for 465, false for other ports
-    auth: {
-      user: 'apikey',
-      pass: SENDGRID_API_KEY
-    },
-    debug: true,
-    logger: true
-  });
-  
+  sgMail.setApiKey(SENDGRID_API_KEY);
 } else if (SMTP_USER && SMTP_PASS) {
-  console.log('[Mailer] Using custom SMTP...');
+  console.log('[Mailer] Using custom SMTP');
   isMailerReady = true;
   
   transporter = nodemailer.createTransport({
@@ -65,29 +53,69 @@ async function sendMail({ to, subject, html, text, attachments }) {
     throw new Error('Mailer not configured');
   }
   
-  const fromAddress = SMTP_FROM || `"Hoot & Howl Learning" <${useSendGrid ? 'noreply@hoothowl.com' : SMTP_USER}>`;
-  console.log('From address:', fromAddress);
+  if (!to) {
+    console.error('[sendMail] ❌ ERROR: No recipient email provided!');
+    throw new Error('No recipient email provided');
+  }
+  
+  const fromAddress = SMTP_FROM || (useSendGrid ? 'hootandhowladmin@gmail.com' : SMTP_USER);
+  const fromFormatted = SMTP_FROM || `"Hoot & Howl Learning" <${fromAddress}>`;
+  console.log('From address:', fromFormatted);
   
   try {
-    const info = await transporter.sendMail({
-      from: fromAddress,
-      to,
-      subject,
-      text: text || subject,
-      html,
-      attachments
-    });
+    let result;
     
-    console.log('[sendMail] ✅ SUCCESS!');
-    console.log('Message ID:', info.messageId);
-    console.log('Response:', info.response);
+    if (useSendGrid) {
+      // Use SendGrid's official API
+      const msg = {
+        to: to,
+        from: fromFormatted,
+        subject: subject,
+        text: text || subject,
+        html: html
+      };
+      
+      // Handle attachments if present
+      if (attachments && attachments.length > 0) {
+        msg.attachments = attachments.map(att => ({
+          content: att.content.toString('base64'),
+          filename: att.filename,
+          type: 'application/pdf',
+          disposition: 'attachment'
+        }));
+      }
+      
+      result = await sgMail.send(msg);
+      console.log('[sendMail] ✅ SUCCESS with SendGrid API!');
+      console.log('SendGrid Response:', result);
+    } else {
+      // Fall back to SMTP if needed
+      result = await transporter.sendMail({
+        from: fromFormatted,
+        to,
+        subject,
+        text: text || subject,
+        html,
+        attachments
+      });
+      
+      console.log('[sendMail] ✅ SUCCESS with SMTP!');
+      console.log('Message ID:', result.messageId);
+      console.log('Response:', result.response);
+    }
+    
     console.log('=================================================');
-    
-    return info;
+    return result;
   } catch (err) {
     console.error('=================================================');
     console.error('[sendMail] ❌ ERROR SENDING EMAIL!');
     console.error('Error message:', err.message);
+    if (err.response) {
+      console.error('SendGrid Response:', err.response);
+      if (err.response.body) {
+        console.error('SendGrid Error Body:', JSON.stringify(err.response.body, null, 2));
+      }
+    }
     if (err.stack) console.error('Stack trace:', err.stack);
     console.error('=================================================');
     throw err;
