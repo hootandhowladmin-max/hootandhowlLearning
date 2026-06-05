@@ -14,8 +14,8 @@ if (isMailerReady) {
   
   transporter = nodemailer.createTransport({
     host: SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(SMTP_PORT) || 587,
-    secure: false, // true for 465, false for other ports
+    port: parseInt(SMTP_PORT) || 465, // Try 465 for secure
+    secure: (parseInt(SMTP_PORT) || 465) === 465, // true for 465
     auth: { 
       user: SMTP_USER, 
       pass: SMTP_PASS 
@@ -27,7 +27,10 @@ if (isMailerReady) {
     logger: true, // Log to console
     pool: true, // Use connection pooling
     maxConnections: 5,
-    family: 4 // Force IPv4!
+    family: 4, // Force IPv4!
+    connectionTimeout: 30000, // 30 seconds
+    greetingTimeout: 30000, // 30 seconds
+    socketTimeout: 30000 // 30 seconds
   });
   
   // Verify connection
