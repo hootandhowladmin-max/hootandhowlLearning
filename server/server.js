@@ -324,6 +324,43 @@ app.get('/', (req, res) => {
 function apiOk(res, data) { res.status(200).json({ ok: true, data }); }
 function apiError(res, message, code = 500) { res.status(code).json({ ok: false, error: message }); }
 
+// TEMPORARY SETUP ENDPOINT - Run once to create initial super admin
+app.post('/api/setup', async (req, res) => {
+  try {
+    if (FIREBASE_READY) {
+      // Check if any admins exist
+      const adminSnapshot = await db.collection('admins').get();
+      if (!adminSnapshot.empty) {
+        return apiError(res, 'Admins already exist!', 400);
+      }
+
+      // Create super admin
+      const email = 'admin@school.edu.in';
+      const password = 'admin123';
+      const name = 'Super Admin';
+      const branch = 'branch1';
+      const isSuper = true;
+
+      const userRecord = await auth.createUser({ email, password, displayName: name });
+      await db.collection('admins').doc(userRecord.uid).set({
+        email,
+        name,
+        branch,
+        isSuper,
+        createdAt: new Date().toISOString(),
+        uid: userRecord.uid
+      });
+
+      apiOk(res, { message: 'Super admin created!', email, password });
+    } else {
+      apiError(res, 'Firebase not initialized!', 503);
+    }
+  } catch (err) {
+    console.error('[SETUP] Error:', err);
+    apiError(res, err.message);
+  }
+});
+
 function ensureFirebase(res) {
   if (!FIREBASE_READY || !db) { apiError(res, 'Firebase not initialized. Provide serviceAccountKey.json and FIREBASE_PROJECT_ID in /server/.env.', 503); return false; }
   return true;
@@ -437,6 +474,25 @@ async function sendParentEmail(type, student, payload = {}) {
 
 app.get('/api/health', (req, res) => {
   apiOk(res, { firebase: FIREBASE_READY, mailer: isMailerReady, time: new Date().toISOString() });
+});
+
+// Test email endpoint
+app.post('/api/test-email', async (req, res) => {
+  try {
+    if (!isMailerReady) return apiError(res, 'Mailer not configured!', 503);
+    const { to } = req.body;
+    if (!to) return apiError(res, 'Missing "to" email!', 400);
+    await sendMail({
+      to,
+      subject: 'Test Email from Hoot & Howl',
+      html: '<p>This is a test email! 🎉</p>',
+      text: 'This is a test email!'
+    });
+    apiOk(res, { message: 'Email sent successfully!' });
+  } catch (err) {
+    console.error('[Test Email] Error:', err);
+    apiError(res, err.message);
+  }
 });
 
 // Admin Login (now just for demo compatibility; frontend uses Firebase Auth directly)
