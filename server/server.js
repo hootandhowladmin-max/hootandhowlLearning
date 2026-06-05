@@ -371,8 +371,13 @@ function ensureMailer(res) {
 }
 
 async function sendParentEmail(type, student, payload = {}) {
-  if (!isMailerReady) return;
+  console.log(`[sendParentEmail] Called! Type: ${type}, Student:`, student, 'Payload:', payload);
+  if (!isMailerReady) {
+    console.warn('[sendParentEmail] Skipped: Mailer not ready!');
+    return;
+  }
   const to = student.parentEmail || student.email;
+  console.log(`[sendParentEmail] Recipient email: ${to}`);
   if (!to) {
     console.warn(`[sendParentEmail] Skipped: No email address for student ${student.name || student.id}`);
     return;
@@ -466,6 +471,7 @@ async function sendParentEmail(type, student, payload = {}) {
       subject = `Notification for ${student.name}`;
       html = `<p>Dear Parent,</p><p>There is an update regarding ${student.name}.</p>`;
   }
+  console.log(`[sendParentEmail] Sending email to ${to} with subject: ${subject}`);
   await sendMail({ to, subject, html, text: subject, attachments });
   console.log(`[sendParentEmail] Sent ${type} email to ${to} for student ${student.name || 'Unknown'} (Date: ${payload.date || 'N/A'})`);
 }
