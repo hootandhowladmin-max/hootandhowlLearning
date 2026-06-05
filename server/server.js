@@ -371,15 +371,27 @@ function ensureMailer(res) {
 }
 
 async function sendParentEmail(type, student, payload = {}) {
-  console.log(`[sendParentEmail] Called! Type: ${type}, Student:`, student, 'Payload:', payload);
+  console.log('=================================================');
+  console.log(`[sendParentEmail] START! Type: ${type}`);
+  console.log('[sendParentEmail] Student object:', JSON.stringify(student, null, 2));
+  console.log('[sendParentEmail] Payload:', JSON.stringify(payload, null, 2));
+  console.log('[sendParentEmail] isMailerReady:', isMailerReady);
+  
   if (!isMailerReady) {
-    console.warn('[sendParentEmail] Skipped: Mailer not ready!');
+    console.error('[sendParentEmail] ❌ ERROR: Mailer not initialized!');
+    console.error('[sendParentEmail] Check SMTP_USER and SMTP_PASS in environment variables!');
     return;
   }
+  
   const to = student.parentEmail || student.email;
-  console.log(`[sendParentEmail] Recipient email: ${to}`);
+  console.log(`[sendParentEmail] Found recipient email:`, to);
+  console.log(`[sendParentEmail] student.parentEmail:`, student.parentEmail);
+  console.log(`[sendParentEmail] student.email:`, student.email);
+  
   if (!to) {
-    console.warn(`[sendParentEmail] Skipped: No email address for student ${student.name || student.id}`);
+    console.warn(`[sendParentEmail] ⚠️ SKIPPED: No email address for student!`);
+    console.warn(`[sendParentEmail] Student name:`, student.name);
+    console.warn(`[sendParentEmail] Student ID:`, student.id);
     return;
   }
 
@@ -472,8 +484,16 @@ async function sendParentEmail(type, student, payload = {}) {
       html = `<p>Dear Parent,</p><p>There is an update regarding ${student.name}.</p>`;
   }
   console.log(`[sendParentEmail] Sending email to ${to} with subject: ${subject}`);
-  await sendMail({ to, subject, html, text: subject, attachments });
-  console.log(`[sendParentEmail] Sent ${type} email to ${to} for student ${student.name || 'Unknown'} (Date: ${payload.date || 'N/A'})`);
+  try {
+    const result = await sendMail({ to, subject, html, text: subject, attachments });
+    console.log(`[sendParentEmail] ✅ SUCCESS: Email sent!`);
+    console.log(`[sendParentEmail] Send result:`, result);
+  } catch (err) {
+    console.error(`[sendParentEmail] ❌ ERROR: Failed to send email!`);
+    console.error(`[sendParentEmail] Error message:`, err.message);
+    console.error(`[sendParentEmail] Full error:`, err);
+    if (err.stack) console.error(`[sendParentEmail] Stack trace:`, err.stack);
+  }
 }
 
 
@@ -1241,12 +1261,23 @@ app.post('/api/attendance', async (req, res) => {
       saveJsonDb(data);
     }
 
+    console.log('========================================');
+    console.log('[POST /api/attendance] Checking status for email...');
+    console.log('[POST /api/attendance] Student ID:', studentId);
+    console.log('[POST /api/attendance] Status:', status);
+    console.log('[POST /api/attendance] status.toLowerCase() === "absent":', status.toLowerCase() === 'absent');
+    console.log('[POST /api/attendance] isMailerReady:', isMailerReady);
+    
     if (status.toLowerCase() === 'absent' && isMailerReady) {
-      try {
-        await sendParentEmail('absent', { ...student, id: studentId }, { date: targetDate });
-      } catch (err) {
-        console.warn(`[POST /api/attendance] Email sync failed: ${err.message}`);
-      }
+      console.log('[POST /api/attendance] ✅ Sending email!');
+      // Non-blocking email send: don't wait for it!
+      sendParentEmail('absent', { ...student, id: studentId }, { date: targetDate })
+        .catch(err => {
+          console.warn(`[POST /api/attendance] Email sync failed (non-blocking): ${err.message}`);
+          console.warn(err.stack);
+        });
+    } else {
+      console.log('[POST /api/attendance] ❌ NOT sending email!');
     }
     apiOk(res, { studentId, ...record });
   } catch (err) { apiError(res, err.message); }
@@ -1289,13 +1320,24 @@ app.post('/api/attendance-bulk', async (req, res) => {
         batch.set(docRef, entry, { merge: true });
         results.push({ studentId, ...entry });
 
+        console.log('========================================');
+        console.log('[POST /api/attendance-bulk] Checking status for email...');
+        console.log('[POST /api/attendance-bulk] Student ID:', studentId);
+        console.log('[POST /api/attendance-bulk] Status:', status);
+        console.log('[POST /api/attendance-bulk] status.toLowerCase() === "absent":', status.toLowerCase() === 'absent');
+        console.log('[POST /api/attendance-bulk] isMailerReady:', isMailerReady);
+        
         if (status.toLowerCase() === 'absent' && isMailerReady) {
-          try {
-            const student = { id: sDoc.id, ...sData };
-            await sendParentEmail('absent', student, { date: targetDate });
-          } catch (err) {
-            console.warn(`[POST /api/attendance-bulk] Email sync failed: ${err.message}`);
-          }
+          console.log('[POST /api/attendance-bulk] ✅ Sending email!');
+          // Non-blocking email send
+          const student = { id: sDoc.id, ...sData };
+          sendParentEmail('absent', student, { date: targetDate })
+            .catch(err => {
+              console.warn(`[POST /api/attendance-bulk] Email sync failed (non-blocking): ${err.message}`);
+              console.warn(err.stack);
+            });
+        } else {
+          console.log('[POST /api/attendance-bulk] ❌ NOT sending email!');
         }
       }
       
@@ -1328,11 +1370,12 @@ app.post('/api/attendance-bulk', async (req, res) => {
         results.push({ studentId, ...entry });
 
         if (status.toLowerCase() === 'absent' && isMailerReady) {
-          try {
-            await sendParentEmail('absent', student, { date: targetDate });
-          } catch (err) {
-            console.warn(`[POST /api/attendance-bulk] Email sync failed: ${err.message}`);
-          }
+          // Non-blocking email send
+          sendParentEmail('absent', student, { date: targetDate })
+            .catch(err => {
+              console.warn(`[POST /api/attendance-bulk] Email sync failed (non-blocking): ${err.message}`);
+              console.warn(err.stack);
+            });
         }
       }
       
@@ -1842,4 +1885,15 @@ app.post('/api/fee-overdue', async (req, res) => {
   } catch (err) { apiError(res, err.message); }
 });
 
-app.listen(PORT, () => { console.log(`Server running on http://localhost:${PORT}`); });
+app.listen(PORT, () => { 
+  console.log('=================================================');
+  console.log('🚀 Server started!');
+  console.log(`📡 Listening on http://localhost:${PORT}`);
+  console.log('=================================================');
+  console.log('🔧 Server Status:');
+  console.log('  - Firebase Ready:', FIREBASE_READY);
+  console.log('  - Mailer Ready:', isMailerReady);
+  console.log('  - SMTP User:', process.env.SMTP_USER || 'NOT SET');
+  console.log('  - SMTP Pass:', process.env.SMTP_PASS ? 'SET (length: ' + process.env.SMTP_PASS.length + ')' : 'NOT SET');
+  console.log('=================================================');
+});
