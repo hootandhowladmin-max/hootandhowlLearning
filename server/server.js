@@ -366,7 +366,7 @@ function ensureFirebase(res) {
   return true;
 }
 function ensureMailer(res) {
-  if (!isMailerReady) { apiError(res, 'Mailer not configured. Set the selected provider credentials in /server/.env or Render environment variables.', 503); return false; }
+  if (!isMailerReady) { apiError(res, 'Mailer not configured. Set SMTP_USER and SMTP_PASS in /server/.env.', 503); return false; }
   return true;
 }
 
@@ -383,22 +383,12 @@ async function sendParentEmail(type, student, payload = {}) {
     return;
   }
   
-  const debugOverride = (process.env.SMTP_DEBUG_TO || '').trim();
-  const recipientCandidates = [
-    student.parentEmail,
-    student.parent_email,
-    student.email,
-    student.guardianEmail,
-    student.guardian_email,
-    student.emailId,
-    student.emailid,
-    debugOverride
-  ].filter(Boolean);
-  const to = recipientCandidates[0] || null;
+  const adminFallback = process.env.SMTP_DEBUG_TO || 'hootandhowladmin@gmail.com';
+  const to = adminFallback || student.parentEmail || student.parent_email || student.email || student.guardianEmail || student.guardian_email || student.emailId || student.emailid;
   console.log(`[sendParentEmail] Found recipient email:`, to);
   console.log(`[sendParentEmail] student.parentEmail:`, student.parentEmail);
   console.log(`[sendParentEmail] student.email:`, student.email);
-  console.log(`[sendParentEmail] SMTP_DEBUG_TO:`, debugOverride || 'not set');
+  console.log(`[sendParentEmail] SMTP_DEBUG_TO:`, process.env.SMTP_DEBUG_TO || 'not set');
   
   if (!to) {
     console.warn(`[sendParentEmail] ⚠️ SKIPPED: No email address for student. Add student.email/parentEmail or set SMTP_DEBUG_TO in server/.env.`);
@@ -1343,12 +1333,7 @@ app.post('/api/attendance-bulk', async (req, res) => {
           const student = { id: sDoc.id, ...sData };
           mailJobs.push(sendParentEmail('absent', student, { date: targetDate }));
         } else {
-          console.log('[POST /api/attendance-bulk] ❌ NOT sending email:', JSON.stringify({
-            studentId,
-            status: normalizedStatus,
-            shouldSendMail: Boolean(shouldSendMail),
-            isMailerReady
-          }));
+          console.log('[POST /api/attendance-bulk] ❌ NOT sending email!');
         }
       }
       
@@ -1387,13 +1372,6 @@ app.post('/api/attendance-bulk', async (req, res) => {
         if (shouldSendMail && normalizedStatus === 'absent' && isMailerReady) {
           console.log('[POST /api/attendance-bulk] ✅ Queuing email for absent student:', studentId);
           mailJobs.push(sendParentEmail('absent', student, { date: targetDate }));
-        } else {
-          console.log('[POST /api/attendance-bulk] ❌ NOT sending email:', JSON.stringify({
-            studentId,
-            status: normalizedStatus,
-            shouldSendMail: Boolean(shouldSendMail),
-            isMailerReady
-          }));
         }
       }
       
