@@ -17,6 +17,6 @@ services:
       - key: SMTP_PORT
         value: 465
       - key: MAIL_PROVIDER
-        value: mailgun
+        value: smtp2go
     docker:
       dockerfile: ./Dockerfile

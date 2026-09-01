@@ -5,6 +5,8 @@ const nodemailer = require('nodemailer');
 
 const {
   MAIL_PROVIDER,
+  SMTP2GO_API_KEY,
+  SMTP2GO_FROM,
   MAILGUN_API_KEY,
   MAILGUN_DOMAIN,
   MAILGUN_FROM,
@@ -21,15 +23,20 @@ const DEFAULT_SMTP_HOST = 'smtp.gmail.com';
 const resolvedHost = SMTP_HOST || DEFAULT_SMTP_HOST;
 const useResend = (MAIL_PROVIDER || '').toLowerCase() === 'resend';
 const useMailgun = (MAIL_PROVIDER || '').toLowerCase() === 'mailgun';
-const isMailerReady = useMailgun
-  ? Boolean(MAILGUN_API_KEY && MAILGUN_DOMAIN && MAILGUN_FROM)
+const useSmtp2go = (MAIL_PROVIDER || '').toLowerCase() === 'smtp2go';
+const isMailerReady = useSmtp2go
+  ? Boolean(SMTP2GO_API_KEY && SMTP2GO_FROM)
+  : useMailgun
+    ? Boolean(MAILGUN_API_KEY && MAILGUN_DOMAIN && MAILGUN_FROM)
   : useResend
     ? Boolean(RESEND_API_KEY && RESEND_FROM)
   : Boolean(SMTP_USER && SMTP_PASS);
 
 let transporter = null;
 
-if (useMailgun && isMailerReady) {
+if (useSmtp2go && isMailerReady) {
+  console.log('[Mailer] Using SMTP2GO HTTPS API');
+} else if (useMailgun && isMailerReady) {
   console.log('[Mailer] Using Mailgun HTTPS API');
 } else if (useResend && isMailerReady) {
   console.log('[Mailer] Using Resend HTTPS API');
@@ -60,11 +67,49 @@ if (useMailgun && isMailerReady) {
     }
   });
 } else {
-  console.warn(useMailgun
+  console.warn(useSmtp2go
+    ? '[Mailer] SMTP2GO_API_KEY / SMTP2GO_FROM missing. SMTP2GO mail is disabled.'
+    : useMailgun
     ? '[Mailer] MAILGUN_API_KEY / MAILGUN_DOMAIN / MAILGUN_FROM missing. Mailgun mail is disabled.'
     : useResend
     ? '[Mailer] RESEND_API_KEY / RESEND_FROM missing. Resend mail is disabled.'
     : '[Mailer] SMTP_HOST / SMTP_USER / SMTP_PASS missing. SMTP mail is disabled.');
+}
+
+async function sendSmtp2goEmail({ to, subject, html, text, attachments }) {
+  const body = {
+    api_key: SMTP2GO_API_KEY,
+    sender: SMTP2GO_FROM,
+    to: [to],
+    subject,
+    text_body: text || subject,
+    html_body: html || `<p>${text || subject}</p>`
+  };
+
+  if (attachments?.length) {
+    body.attachments = attachments.map((attachment) => ({
+      filename: attachment.filename,
+      fileblob: Buffer.isBuffer(attachment.content)
+        ? attachment.content.toString('base64')
+        : Buffer.from(attachment.content).toString('base64')
+    }));
+  }
+
+  const response = await fetch('https://api.smtp2go.com/v3/email/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const responseBody = await response.text();
+  if (!response.ok) {
+    throw new Error(`SMTP2GO API ${response.status}: ${responseBody}`);
+  }
+
+  const result = JSON.parse(responseBody);
+  if (result.data?.succeeded === false || result.data?.failed) {
+    throw new Error(`SMTP2GO rejected email: ${responseBody}`);
+  }
+  return { messageId: result.data?.email_id, response: `SMTP2GO HTTP ${response.status}` };
 }
 
 async function sendMailgunEmail({ to, subject, html, text, attachments }) {
@@ -145,7 +190,7 @@ async function sendMail({
   console.log('To:', to);
   console.log('Subject:', subject);
 
-  if (!isMailerReady || (!useMailgun && !useResend && !transporter)) {
+  if (!isMailerReady || (!useSmtp2go && !useMailgun && !useResend && !transporter)) {
     throw new Error('Mailer not configured');
   }
 
@@ -154,7 +199,9 @@ async function sendMail({
   }
 
   try {
-    const result = useMailgun
+    const result = useSmtp2go
+      ? await sendSmtp2goEmail({ to, subject, html, text, attachments })
+      : useMailgun
       ? await sendMailgunEmail({ to, subject, html, text, attachments })
       : useResend
       ? await sendResendEmail({ to, subject, html, text, attachments })
@@ -167,7 +214,7 @@ async function sendMail({
           attachments
         });
 
-    console.log(`[sendMail] SUCCESS via ${useMailgun ? 'Mailgun HTTPS API' : useResend ? 'Resend HTTPS API' : 'SMTP'}`);
+    console.log(`[sendMail] SUCCESS via ${useSmtp2go ? 'SMTP2GO HTTPS API' : useMailgun ? 'Mailgun HTTPS API' : useResend ? 'Resend HTTPS API' : 'SMTP'}`);
     console.log('Message ID:', result.messageId);
     console.log('Response:', result.response);
     console.log('=================================================');
