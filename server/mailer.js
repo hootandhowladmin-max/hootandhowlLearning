@@ -29,6 +29,7 @@ if (isMailerReady) {
       user: SMTP_USER,
       pass: SMTP_PASS
     },
+    family: 4,
     connectionTimeout: 30000,
     greetingTimeout: 30000,
     socketTimeout: 30000
