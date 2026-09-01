@@ -2826,17 +2826,18 @@ async function saveAttendanceAndMail(){
   
   setProcessing(true);
   try{
-    // First save the attendance
-    await apiPost('/api/attendance-bulk',{date:d,records});
-    toast('Attendance saved successfully for '+d,'success');
+    const result = await apiPost('/api/attendance-bulk',{date:d,records,sendMail:true});
+    const absentCount = (records.filter(r => String(r.status).toLowerCase() === 'absent')).length;
+    toast(absentCount ? 'Attendance saved and absent emails sent for '+d : 'Attendance saved successfully for '+d, 'success');
     
-    // Now open the WhatsApp modal for absent students
-    setTimeout(() => {
-      sendBulkWhatsApp();
-    }, 500);
+    if (absentCount > 0) {
+      setTimeout(() => {
+        sendBulkWhatsApp();
+      }, 500);
+    }
   }catch(e){
     console.error("Save error:", e);
-    toast('Failed to save to Firebase','error');
+    toast('Failed to save and send emails','error');
   } finally {
     setProcessing(false);
   }

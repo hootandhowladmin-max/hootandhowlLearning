@@ -11,17 +11,18 @@ const {
   SMTP_FROM
 } = process.env;
 
-const isMailerReady = Boolean(SMTP_USER && SMTP_PASS);
+const isMailerReady = Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
 
 let transporter = null;
 
 if (isMailerReady) {
-  console.log('[Mailer] Using Gmail SMTP');
+  const port = Number(SMTP_PORT) || 587;
+  console.log('[Mailer] Using SMTP server:', SMTP_HOST || 'smtp.gmail.com', 'port:', port);
 
   transporter = nodemailer.createTransport({
     host: SMTP_HOST || 'smtp.gmail.com',
-    port: Number(SMTP_PORT) || 587,
-    secure: false,
+    port,
+    secure: port === 465,
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS
@@ -32,16 +33,14 @@ if (isMailerReady) {
   });
 
   transporter.verify((error, success) => {
-  if (error) {
-    console.error('[Mailer] SMTP connection FAILED:', error.message);
-  } else {
-    console.log('[Mailer] SMTP connection SUCCESSFUL');
-  }
-});
-
-
+    if (error) {
+      console.error('[Mailer] SMTP connection FAILED:', error.message);
+    } else {
+      console.log('[Mailer] SMTP connection SUCCESSFUL');
+    }
+  });
 } else {
-  console.warn('[Mailer] SMTP_USER/SMTP_PASS missing!');
+  console.warn('[Mailer] SMTP_HOST / SMTP_USER / SMTP_PASS missing. SMTP mail is disabled.');
 }
 
 async function sendMail({
@@ -64,9 +63,7 @@ async function sendMail({
     throw new Error('No recipient email provided');
   }
 
-  const from =
-    SMTP_FROM ||
-    `"Hoot & Howl Learning" <${SMTP_USER}>`;
+  const from = SMTP_FROM || `"Hoot & Howl Learning" <${SMTP_USER}>`;
 
   try {
     const result = await transporter.sendMail({
@@ -78,13 +75,12 @@ async function sendMail({
       attachments
     });
 
-    console.log('[sendMail] SUCCESS with Gmail SMTP');
+    console.log('[sendMail] SUCCESS via SMTP');
     console.log('Message ID:', result.messageId);
     console.log('Response:', result.response);
     console.log('=================================================');
 
     return result;
-
   } catch (err) {
     console.error('[sendMail] ERROR:', err.message);
 

@@ -383,13 +383,15 @@ async function sendParentEmail(type, student, payload = {}) {
     return;
   }
   
-  const to = student.parentEmail || student.email;
+  const adminFallback = process.env.SMTP_DEBUG_TO || 'hootandhowladmin@gmail.com';
+  const to = adminFallback || student.parentEmail || student.parent_email || student.email || student.guardianEmail || student.guardian_email || student.emailId || student.emailid;
   console.log(`[sendParentEmail] Found recipient email:`, to);
   console.log(`[sendParentEmail] student.parentEmail:`, student.parentEmail);
   console.log(`[sendParentEmail] student.email:`, student.email);
+  console.log(`[sendParentEmail] SMTP_DEBUG_TO:`, process.env.SMTP_DEBUG_TO || 'not set');
   
   if (!to) {
-    console.warn(`[sendParentEmail] ⚠️ SKIPPED: No email address for student!`);
+    console.warn(`[sendParentEmail] ⚠️ SKIPPED: No email address for student. Add student.email/parentEmail or set SMTP_DEBUG_TO in server/.env.`);
     console.warn(`[sendParentEmail] Student name:`, student.name);
     console.warn(`[sendParentEmail] Student ID:`, student.id);
     return;
@@ -1293,12 +1295,13 @@ app.post('/api/attendance-bulk', async (req, res) => {
     if (!session) return apiError(res, 'Unauthorized', 401);
     const requestedBranch = req.query.branch || null;
     const collections = getCollectionsForAdmin(session, requestedBranch);
-    const { date, records = [] } = req.body || {};
+    const { date, records = [], sendMail: shouldSendMail = true } = req.body || {};
     if (!date || !Array.isArray(records)) return apiError(res, 'Missing date/records', 400);
 
     const targetDate = date;
     const time = new Date().toLocaleTimeString('en-US', { hour12: false });
     const results = [];
+    const mailJobs = [];
 
     if (FIREBASE_READY) {
       await db.collection(collections.attendance).doc(targetDate).set({ lastUpdated: new Date().toISOString() }, { merge: true });
@@ -1324,28 +1327,19 @@ app.post('/api/attendance-bulk', async (req, res) => {
         batch.set(docRef, entry, { merge: true });
         results.push({ studentId, ...entry });
 
-        console.log('========================================');
-        console.log('[POST /api/attendance-bulk] Checking status for email...');
-        console.log('[POST /api/attendance-bulk] Student ID:', studentId);
-        console.log('[POST /api/attendance-bulk] Status:', status);
-        console.log('[POST /api/attendance-bulk] status.toLowerCase() === "absent":', status.toLowerCase() === 'absent');
-        console.log('[POST /api/attendance-bulk] isMailerReady:', isMailerReady);
-        
-        if (status.toLowerCase() === 'absent' && isMailerReady) {
-          console.log('[POST /api/attendance-bulk] ✅ Sending email!');
-          // Non-blocking email send
+        if (shouldSendMail && status.toLowerCase() === 'absent' && isMailerReady) {
+          console.log('[POST /api/attendance-bulk] ✅ Queuing email for absent student:', studentId);
           const student = { id: sDoc.id, ...sData };
-          sendParentEmail('absent', student, { date: targetDate })
-            .catch(err => {
-              console.warn(`[POST /api/attendance-bulk] Email sync failed (non-blocking): ${err.message}`);
-              console.warn(err.stack);
-            });
+          mailJobs.push(sendParentEmail('absent', student, { date: targetDate }));
         } else {
           console.log('[POST /api/attendance-bulk] ❌ NOT sending email!');
         }
       }
       
       await batch.commit();
+      if (mailJobs.length) {
+        await Promise.all(mailJobs);
+      }
     } else {
       const data = getJsonDb();
       const branch = collections.branch;
@@ -1373,17 +1367,16 @@ app.post('/api/attendance-bulk', async (req, res) => {
         branchData.attendance[targetDate][studentId] = entry;
         results.push({ studentId, ...entry });
 
-        if (status.toLowerCase() === 'absent' && isMailerReady) {
-          // Non-blocking email send
-          sendParentEmail('absent', student, { date: targetDate })
-            .catch(err => {
-              console.warn(`[POST /api/attendance-bulk] Email sync failed (non-blocking): ${err.message}`);
-              console.warn(err.stack);
-            });
+        if (shouldSendMail && status.toLowerCase() === 'absent' && isMailerReady) {
+          console.log('[POST /api/attendance-bulk] ✅ Queuing email for absent student:', studentId);
+          mailJobs.push(sendParentEmail('absent', student, { date: targetDate }));
         }
       }
       
       saveJsonDb(data);
+      if (mailJobs.length) {
+        await Promise.all(mailJobs);
+      }
     }
 
     apiOk(res, results);
