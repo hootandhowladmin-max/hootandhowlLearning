@@ -383,8 +383,8 @@ async function sendParentEmail(type, student, payload = {}) {
     return;
   }
   
-  const adminFallback = process.env.SMTP_DEBUG_TO || 'hootandhowladmin@gmail.com';
-  const to = adminFallback || student.parentEmail || student.parent_email || student.email || student.guardianEmail || student.guardian_email || student.emailId || student.emailid;
+  const studentEmail = student.parentEmail || student.parent_email || student.email || student.guardianEmail || student.guardian_email || student.emailId || student.emailid;
+  const to = studentEmail || process.env.SMTP_DEBUG_TO || 'hootandhowladmin@gmail.com';
   console.log(`[sendParentEmail] Found recipient email:`, to);
   console.log(`[sendParentEmail] student.parentEmail:`, student.parentEmail);
   console.log(`[sendParentEmail] student.email:`, student.email);
