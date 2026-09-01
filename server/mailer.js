@@ -5,6 +5,9 @@ const nodemailer = require('nodemailer');
 
 const {
   MAIL_PROVIDER,
+  MAILGUN_API_KEY,
+  MAILGUN_DOMAIN,
+  MAILGUN_FROM,
   RESEND_API_KEY,
   RESEND_FROM,
   SMTP_HOST,
@@ -17,13 +20,18 @@ const {
 const DEFAULT_SMTP_HOST = 'smtp.gmail.com';
 const resolvedHost = SMTP_HOST || DEFAULT_SMTP_HOST;
 const useResend = (MAIL_PROVIDER || '').toLowerCase() === 'resend';
-const isMailerReady = useResend
-  ? Boolean(RESEND_API_KEY && RESEND_FROM)
+const useMailgun = (MAIL_PROVIDER || '').toLowerCase() === 'mailgun';
+const isMailerReady = useMailgun
+  ? Boolean(MAILGUN_API_KEY && MAILGUN_DOMAIN && MAILGUN_FROM)
+  : useResend
+    ? Boolean(RESEND_API_KEY && RESEND_FROM)
   : Boolean(SMTP_USER && SMTP_PASS);
 
 let transporter = null;
 
-if (useResend && isMailerReady) {
+if (useMailgun && isMailerReady) {
+  console.log('[Mailer] Using Mailgun HTTPS API');
+} else if (useResend && isMailerReady) {
   console.log('[Mailer] Using Resend HTTPS API');
 } else if (!useResend && isMailerReady) {
   // Gmail SMTP on Render must use the reachable SSL endpoint.
@@ -52,9 +60,42 @@ if (useResend && isMailerReady) {
     }
   });
 } else {
-  console.warn(useResend
+  console.warn(useMailgun
+    ? '[Mailer] MAILGUN_API_KEY / MAILGUN_DOMAIN / MAILGUN_FROM missing. Mailgun mail is disabled.'
+    : useResend
     ? '[Mailer] RESEND_API_KEY / RESEND_FROM missing. Resend mail is disabled.'
     : '[Mailer] SMTP_HOST / SMTP_USER / SMTP_PASS missing. SMTP mail is disabled.');
+}
+
+async function sendMailgunEmail({ to, subject, html, text, attachments }) {
+  const form = new FormData();
+  form.append('from', MAILGUN_FROM);
+  form.append('to', to);
+  form.append('subject', subject);
+  form.append('text', text || subject);
+  form.append('html', html || `<p>${text || subject}</p>`);
+
+  for (const attachment of attachments || []) {
+    const content = Buffer.isBuffer(attachment.content)
+      ? new Uint8Array(attachment.content)
+      : attachment.content;
+    form.append('attachment', new Blob([content]), attachment.filename);
+  }
+
+  const response = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64')}`
+    },
+    body: form
+  });
+  const responseBody = await response.text();
+  if (!response.ok) {
+    throw new Error(`Mailgun API ${response.status}: ${responseBody}`);
+  }
+
+  const result = JSON.parse(responseBody);
+  return { messageId: result.id, response: `Mailgun HTTP ${response.status}` };
 }
 
 async function sendResendEmail({ to, subject, html, text, attachments }) {
@@ -104,7 +145,7 @@ async function sendMail({
   console.log('To:', to);
   console.log('Subject:', subject);
 
-  if (!isMailerReady || (!useResend && !transporter)) {
+  if (!isMailerReady || (!useMailgun && !useResend && !transporter)) {
     throw new Error('Mailer not configured');
   }
 
@@ -113,7 +154,9 @@ async function sendMail({
   }
 
   try {
-    const result = useResend
+    const result = useMailgun
+      ? await sendMailgunEmail({ to, subject, html, text, attachments })
+      : useResend
       ? await sendResendEmail({ to, subject, html, text, attachments })
       : await transporter.sendMail({
           from: SMTP_FROM || `"Hoot & Howl Learning" <${SMTP_USER}>`,
@@ -124,7 +167,7 @@ async function sendMail({
           attachments
         });
 
-    console.log(`[sendMail] SUCCESS via ${useResend ? 'Resend HTTPS API' : 'SMTP'}`);
+    console.log(`[sendMail] SUCCESS via ${useMailgun ? 'Mailgun HTTPS API' : useResend ? 'Resend HTTPS API' : 'SMTP'}`);
     console.log('Message ID:', result.messageId);
     console.log('Response:', result.response);
     console.log('=================================================');
