@@ -18,7 +18,8 @@ const isMailerReady = Boolean(SMTP_USER && SMTP_PASS);
 let transporter = null;
 
 if (isMailerReady) {
-  const port = Number(SMTP_PORT) || 465;
+  // Gmail SMTP on Render must use the reachable SSL endpoint.
+  const port = 465;
   console.log('[Mailer] Using SMTP server:', resolvedHost, 'port:', port);
 
   transporter = nodemailer.createTransport({
