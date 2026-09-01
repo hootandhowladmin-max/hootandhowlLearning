@@ -18,7 +18,7 @@ const isMailerReady = Boolean(SMTP_USER && SMTP_PASS);
 let transporter = null;
 
 if (isMailerReady) {
-  const port = Number(SMTP_PORT) || 587;
+  const port = Number(SMTP_PORT) || 465;
   console.log('[Mailer] Using SMTP server:', resolvedHost, 'port:', port);
 
   transporter = nodemailer.createTransport({

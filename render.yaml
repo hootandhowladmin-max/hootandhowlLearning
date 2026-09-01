@@ -12,5 +12,9 @@ services:
         value: ""
       - key: PUPPETEER_EXECUTABLE_PATH
         value: /usr/bin/chromium
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 465
     docker:
       dockerfile: ./Dockerfile
