@@ -16,5 +16,9 @@ services:
         value: smtp.gmail.com
       - key: SMTP_PORT
         value: 465
+      - key: MAIL_PROVIDER
+        value: resend
+      - key: RESEND_FROM
+        value: onboarding@resend.dev
     docker:
       dockerfile: ./Dockerfile

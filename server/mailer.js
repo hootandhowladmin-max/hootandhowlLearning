@@ -4,6 +4,9 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const nodemailer = require('nodemailer');
 
 const {
+  MAIL_PROVIDER,
+  RESEND_API_KEY,
+  RESEND_FROM,
   SMTP_HOST,
   SMTP_PORT,
   SMTP_USER,
@@ -13,11 +16,16 @@ const {
 
 const DEFAULT_SMTP_HOST = 'smtp.gmail.com';
 const resolvedHost = SMTP_HOST || DEFAULT_SMTP_HOST;
-const isMailerReady = Boolean(SMTP_USER && SMTP_PASS);
+const useResend = (MAIL_PROVIDER || '').toLowerCase() === 'resend';
+const isMailerReady = useResend
+  ? Boolean(RESEND_API_KEY && RESEND_FROM)
+  : Boolean(SMTP_USER && SMTP_PASS);
 
 let transporter = null;
 
-if (isMailerReady) {
+if (useResend && isMailerReady) {
+  console.log('[Mailer] Using Resend HTTPS API');
+} else if (!useResend && isMailerReady) {
   // Gmail SMTP on Render must use the reachable SSL endpoint.
   const port = 465;
   console.log('[Mailer] Using SMTP server:', resolvedHost, 'port:', port);
@@ -44,7 +52,44 @@ if (isMailerReady) {
     }
   });
 } else {
-  console.warn('[Mailer] SMTP_HOST / SMTP_USER / SMTP_PASS missing. SMTP mail is disabled.');
+  console.warn(useResend
+    ? '[Mailer] RESEND_API_KEY / RESEND_FROM missing. Resend mail is disabled.'
+    : '[Mailer] SMTP_HOST / SMTP_USER / SMTP_PASS missing. SMTP mail is disabled.');
+}
+
+async function sendResendEmail({ to, subject, html, text, attachments }) {
+  const body = {
+    from: RESEND_FROM,
+    to: [to],
+    subject,
+    text: text || subject,
+    html: html || `<p>${text || subject}</p>`
+  };
+
+  if (attachments?.length) {
+    body.attachments = attachments.map((attachment) => ({
+      filename: attachment.filename,
+      content: Buffer.isBuffer(attachment.content)
+        ? attachment.content.toString('base64')
+        : Buffer.from(attachment.content).toString('base64')
+    }));
+  }
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  const responseBody = await response.text();
+  if (!response.ok) {
+    throw new Error(`Resend API ${response.status}: ${responseBody}`);
+  }
+
+  const result = JSON.parse(responseBody);
+  return { messageId: result.id, response: `Resend HTTP ${response.status}` };
 }
 
 async function sendMail({
@@ -59,7 +104,7 @@ async function sendMail({
   console.log('To:', to);
   console.log('Subject:', subject);
 
-  if (!isMailerReady || !transporter) {
+  if (!isMailerReady || (!useResend && !transporter)) {
     throw new Error('Mailer not configured');
   }
 
@@ -67,19 +112,19 @@ async function sendMail({
     throw new Error('No recipient email provided');
   }
 
-  const from = SMTP_FROM || `"Hoot & Howl Learning" <${SMTP_USER}>`;
-
   try {
-    const result = await transporter.sendMail({
-      from,
-      to,
-      subject,
-      text: text || subject,
-      html,
-      attachments
-    });
+    const result = useResend
+      ? await sendResendEmail({ to, subject, html, text, attachments })
+      : await transporter.sendMail({
+          from: SMTP_FROM || `"Hoot & Howl Learning" <${SMTP_USER}>`,
+          to,
+          subject,
+          text: text || subject,
+          html,
+          attachments
+        });
 
-    console.log('[sendMail] SUCCESS via SMTP');
+    console.log(`[sendMail] SUCCESS via ${useResend ? 'Resend HTTPS API' : 'SMTP'}`);
     console.log('Message ID:', result.messageId);
     console.log('Response:', result.response);
     console.log('=================================================');
