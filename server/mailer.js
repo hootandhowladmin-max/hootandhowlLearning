@@ -12,6 +12,9 @@ const {
   MAILGUN_FROM,
   RESEND_API_KEY,
   RESEND_FROM,
+  MAILJET_API_KEY,
+  MAILJET_SECRET_KEY,
+  MAILJET_FROM,
   SMTP_HOST,
   SMTP_PORT,
   SMTP_USER,
@@ -24,12 +27,15 @@ const resolvedHost = SMTP_HOST || DEFAULT_SMTP_HOST;
 const useResend = (MAIL_PROVIDER || '').toLowerCase() === 'resend';
 const useMailgun = (MAIL_PROVIDER || '').toLowerCase() === 'mailgun';
 const useSmtp2go = (MAIL_PROVIDER || '').toLowerCase() === 'smtp2go';
+const useMailjet = (MAIL_PROVIDER || '').toLowerCase() === 'mailjet';
 const isMailerReady = useSmtp2go
   ? Boolean(SMTP2GO_API_KEY && SMTP2GO_FROM)
   : useMailgun
     ? Boolean(MAILGUN_API_KEY && MAILGUN_DOMAIN && MAILGUN_FROM)
   : useResend
     ? Boolean(RESEND_API_KEY && RESEND_FROM)
+  : useMailjet
+    ? Boolean(MAILJET_API_KEY && MAILJET_SECRET_KEY && MAILJET_FROM)
   : Boolean(SMTP_USER && SMTP_PASS);
 
 let transporter = null;
@@ -40,7 +46,9 @@ if (useSmtp2go && isMailerReady) {
   console.log('[Mailer] Using Mailgun HTTPS API');
 } else if (useResend && isMailerReady) {
   console.log('[Mailer] Using Resend HTTPS API');
-} else if (!useResend && isMailerReady) {
+} else if (useMailjet && isMailerReady) {
+  console.log('[Mailer] Using Mailjet HTTPS API');
+} else if (!useResend && !useMailjet && isMailerReady) {
   // Gmail SMTP on Render must use the reachable SSL endpoint.
   const port = 465;
   console.log('[Mailer] Using SMTP server:', resolvedHost, 'port:', port);
@@ -73,7 +81,22 @@ if (useSmtp2go && isMailerReady) {
     ? '[Mailer] MAILGUN_API_KEY / MAILGUN_DOMAIN / MAILGUN_FROM missing. Mailgun mail is disabled.'
     : useResend
     ? '[Mailer] RESEND_API_KEY / RESEND_FROM missing. Resend mail is disabled.'
+    : useMailjet
+    ? '[Mailer] MAILJET_API_KEY / MAILJET_SECRET_KEY / MAILJET_FROM missing. Mailjet mail is disabled.'
     : '[Mailer] SMTP_HOST / SMTP_USER / SMTP_PASS missing. SMTP mail is disabled.');
+}
+
+function parseMailjetFrom(value) {
+  if (!value) {
+    return { name: '', email: '' };
+  }
+
+  const match = value.match(/^(.+?)\s*<([^<>]+)>$/);
+  if (match) {
+    return { name: match[1].trim(), email: match[2].trim() };
+  }
+
+  return { name: '', email: value.trim() };
 }
 
 async function sendSmtp2goEmail({ to, subject, html, text, attachments }) {
@@ -143,6 +166,48 @@ async function sendMailgunEmail({ to, subject, html, text, attachments }) {
   return { messageId: result.id, response: `Mailgun HTTP ${response.status}` };
 }
 
+async function sendMailjetEmail({ to, subject, html, text, attachments }) {
+  const fromAddress = parseMailjetFrom(MAILJET_FROM);
+  const body = {
+    Messages: [{
+      From: {
+        Email: fromAddress.email,
+        ...(fromAddress.name ? { Name: fromAddress.name } : {})
+      },
+      To: [{ Email: to }],
+      Subject: subject,
+      TextPart: text || subject,
+      HTMLPart: html || `<p>${text || subject}</p>`
+    }]
+  };
+
+  if (attachments?.length) {
+    body.Messages[0].Attachments = attachments.map((attachment) => ({
+      Filename: attachment.filename,
+      Base64Content: Buffer.isBuffer(attachment.content)
+        ? attachment.content.toString('base64')
+        : Buffer.from(attachment.content).toString('base64')
+    }));
+  }
+
+  const response = await fetch('https://api.mailjet.com/v3.1/send', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${MAILJET_API_KEY}:${MAILJET_SECRET_KEY}`).toString('base64')}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  const responseBody = await response.text();
+  if (!response.ok) {
+    throw new Error(`Mailjet API ${response.status}: ${responseBody}`);
+  }
+
+  const result = JSON.parse(responseBody);
+  const messageId = result.Messages?.[0]?.To?.[0]?.MessageID;
+  return { messageId, response: `Mailjet HTTP ${response.status}` };
+}
+
 async function sendResendEmail({ to, subject, html, text, attachments }) {
   const body = {
     from: RESEND_FROM,
@@ -190,7 +255,7 @@ async function sendMail({
   console.log('To:', to);
   console.log('Subject:', subject);
 
-  if (!isMailerReady || (!useSmtp2go && !useMailgun && !useResend && !transporter)) {
+  if (!isMailerReady || (!useSmtp2go && !useMailgun && !useResend && !useMailjet && !transporter)) {
     throw new Error('Mailer not configured');
   }
 
@@ -205,6 +270,8 @@ async function sendMail({
       ? await sendMailgunEmail({ to, subject, html, text, attachments })
       : useResend
       ? await sendResendEmail({ to, subject, html, text, attachments })
+      : useMailjet
+      ? await sendMailjetEmail({ to, subject, html, text, attachments })
       : await transporter.sendMail({
           from: SMTP_FROM || `"Hoot & Howl Learning" <${SMTP_USER}>`,
           to,
@@ -214,7 +281,7 @@ async function sendMail({
           attachments
         });
 
-    console.log(`[sendMail] SUCCESS via ${useSmtp2go ? 'SMTP2GO HTTPS API' : useMailgun ? 'Mailgun HTTPS API' : useResend ? 'Resend HTTPS API' : 'SMTP'}`);
+    console.log(`[sendMail] SUCCESS via ${useSmtp2go ? 'SMTP2GO HTTPS API' : useMailgun ? 'Mailgun HTTPS API' : useResend ? 'Resend HTTPS API' : useMailjet ? 'Mailjet HTTPS API' : 'SMTP'}`);
     console.log('Message ID:', result.messageId);
     console.log('Response:', result.response);
     console.log('=================================================');

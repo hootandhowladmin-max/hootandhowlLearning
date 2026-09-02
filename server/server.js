@@ -366,7 +366,7 @@ function ensureFirebase(res) {
   return true;
 }
 function ensureMailer(res) {
-  if (!isMailerReady) { apiError(res, 'Mailer not configured. Set SMTP_USER and SMTP_PASS in /server/.env.', 503); return false; }
+  if (!isMailerReady) { apiError(res, 'Mailer not configured. Set the active mail provider credentials in /server/.env (for Mailjet: MAIL_PROVIDER, MAILJET_API_KEY, MAILJET_SECRET_KEY, MAILJET_FROM).', 503); return false; }
   return true;
 }
 
