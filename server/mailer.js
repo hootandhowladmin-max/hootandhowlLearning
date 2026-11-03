@@ -28,15 +28,41 @@ const useResend = (MAIL_PROVIDER || '').toLowerCase() === 'resend';
 const useMailgun = (MAIL_PROVIDER || '').toLowerCase() === 'mailgun';
 const useSmtp2go = (MAIL_PROVIDER || '').toLowerCase() === 'smtp2go';
 const useMailjet = (MAIL_PROVIDER || '').toLowerCase() === 'mailjet';
-const isMailerReady = useSmtp2go
-  ? Boolean(SMTP2GO_API_KEY && SMTP2GO_FROM)
+
+function hasFreeEmailSender(value) {
+  if (!value) return false;
+  const emailMatch = value.match(/<([^>]+)>/);
+  const candidate = (emailMatch ? emailMatch[1] : value).trim();
+  return /@(gmail|googlemail|hotmail|outlook|yahoo|icloud|aol|protonmail)\./i.test(candidate);
+}
+
+const senderValue = useMailjet
+  ? MAILJET_FROM
   : useMailgun
-    ? Boolean(MAILGUN_API_KEY && MAILGUN_DOMAIN && MAILGUN_FROM)
+    ? MAILGUN_FROM
   : useResend
-    ? Boolean(RESEND_API_KEY && RESEND_FROM)
+    ? RESEND_FROM
+  : useSmtp2go
+    ? SMTP2GO_FROM
+  : SMTP_FROM || SMTP_USER;
+
+const senderWarning = hasFreeEmailSender(senderValue)
+  ? '[Mailer] WARNING: sender uses a free email provider. For good inbox placement, use a verified custom domain sender with SPF/DKIM configured.'
+  : null;
+
+if (senderWarning) {
+  console.warn(senderWarning);
+}
+
+const isMailerReady = useSmtp2go
+  ? Boolean(SMTP2GO_API_KEY && SMTP2GO_FROM) && !hasFreeEmailSender(SMTP2GO_FROM)
+  : useMailgun
+    ? Boolean(MAILGUN_API_KEY && MAILGUN_DOMAIN && MAILGUN_FROM) && !hasFreeEmailSender(MAILGUN_FROM)
+  : useResend
+    ? Boolean(RESEND_API_KEY && RESEND_FROM) && !hasFreeEmailSender(RESEND_FROM)
   : useMailjet
-    ? Boolean(MAILJET_API_KEY && MAILJET_SECRET_KEY && MAILJET_FROM)
-  : Boolean(SMTP_USER && SMTP_PASS);
+    ? Boolean(MAILJET_API_KEY && MAILJET_SECRET_KEY && MAILJET_FROM) && !hasFreeEmailSender(MAILJET_FROM)
+  : Boolean(SMTP_USER && SMTP_PASS) && !hasFreeEmailSender(SMTP_FROM || SMTP_USER);
 
 let transporter = null;
 

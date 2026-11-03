@@ -10,6 +10,12 @@ const { db, auth, FIREBASE_READY } = require('./firebase');
 const { sendMail, isMailerReady } = require('./mailer');
 const crypto = require('crypto');
 
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const WHATSAPP_TEMPLATE_NAME = process.env.WHATSAPP_TEMPLATE_NAME || 'absence_alert';
+const WHATSAPP_TEMPLATE_LANGUAGE = process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'en';
+const GOOGLE_FORMS_SYNC_SECRET = process.env.GOOGLE_FORMS_SYNC_SECRET;
+
 // Invoice Themes (matching frontend)
 const INV_THEMES = {
   navy: { name: 'Navy & Gold', bg: '#1B2B4B', accent: '#BF8C40', text: '#FFFFFF', sub: 'rgba(255,255,255,.5)', paper: '#FFFFFF', border: '#E5E8EE', rowbg: '#F8F9FB' },
@@ -370,6 +376,95 @@ function ensureMailer(res) {
   return true;
 }
 
+function formatDate(dateStr) {
+    if (!dateStr) return '';
+    if (dateStr.includes('-')) {
+      // If format is YYYY-MM-DD
+      const [year, month, day] = dateStr.split('-');
+      return `${day}-${month}-${year}`;
+    } else if (dateStr.includes('/')) {
+      // If format is DD/MM/YYYY or MM/DD/YYYY
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        const [d, m, y] = parts.length === 3 ? (parts[0].length <= 2 && parts[1].length <=2 && parts[2].length ===4 ? parts : (parts[2].length ===4 ? [parts[1], parts[0], parts[2]] : parts)) : parts;
+        return `${d}-${m}-${y}`;
+      }
+    }
+    return dateStr;
+  }
+
+function sanitizeWhatsAppNumber(value) {
+  if (!value || typeof value !== 'string') return null;
+  const raw = value.replace(/\s+/g, '').replace(/[-()]/g, '');
+  if (!raw) return null;
+  if (raw.startsWith('00')) return `+${raw.slice(2)}`;
+  if (raw.startsWith('+')) return raw;
+  if (/^\d{10,15}$/.test(raw)) return `+${raw}`;
+  return raw;
+}
+
+function getParentWhatsAppNumber(student = {}) {
+  const phone = student.parentPhone || student.parent_phone || student.parentMobile || student.parent_mobile || student.guardianPhone || student.guardian_phone || student.mobile || student.phone || student.contactNumber || student.contact_number;
+  return sanitizeWhatsAppNumber(phone);
+}
+
+async function sendParentWhatsApp(type, student, payload = {}) {
+  const hasWhatsAppConfig = Boolean(WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID);
+  if (!hasWhatsAppConfig) {
+    console.warn('[sendParentWhatsApp] WhatsApp Business API not configured. Missing WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID.');
+    return null;
+  }
+
+  const to = getParentWhatsAppNumber(student);
+  if (!to) {
+    console.warn(`[sendParentWhatsApp] SKIPPED: No parent mobile number for ${student?.name || 'student'}.`);
+    return null;
+  }
+
+  let parameters = [];
+  let templateName = WHATSAPP_TEMPLATE_NAME;
+
+  switch (type) {
+    case 'absent': {
+      const absentDate = formatDate(payload.date) || new Date().toLocaleDateString('en-GB');
+      parameters = [student.name || 'Student', absentDate];
+      break;
+    }
+    default:
+      parameters = [student.name || 'Student'];
+  }
+
+  const response = await fetch(`https://graph.facebook.com/v19.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: WHATSAPP_TEMPLATE_LANGUAGE },
+        components: [{
+          type: 'body',
+          parameters: parameters.map((value) => ({ type: 'text', text: String(value) }))
+        }]
+      }
+    })
+  });
+
+  const responseBody = await response.text();
+  if (!response.ok) {
+    throw new Error(`WhatsApp API ${response.status}: ${responseBody}`);
+  }
+
+  const result = JSON.parse(responseBody);
+  console.log('[sendParentWhatsApp] ✅ SUCCESS:', result);
+  return result;
+}
+
 async function sendParentEmail(type, student, payload = {}) {
   console.log('=================================================');
   console.log(`[sendParentEmail] START! Type: ${type}`);
@@ -497,8 +592,6 @@ async function sendParentEmail(type, student, payload = {}) {
     if (err.stack) console.error(`[sendParentEmail] Stack trace:`, err.stack);
   }
 }
-
-
 
 app.get('/api/health', (req, res) => {
   apiOk(res, { firebase: FIREBASE_READY, mailer: isMailerReady, time: new Date().toISOString() });
@@ -889,6 +982,153 @@ app.post('/api/students', async (req, res) => {
   }
 });
 
+// Google Forms/Google Sheets submission endpoint
+app.post('/api/google-forms/admission', async (req, res) => {
+  try {
+    const secret = req.headers['x-google-forms-secret'] || req.body?.secret;
+    if (!GOOGLE_FORMS_SYNC_SECRET) {
+      return apiError(res, 'Google Forms sync secret is not configured', 503);
+    }
+    const secretBuffer = Buffer.from(String(secret || ''));
+    const expectedBuffer = Buffer.from(GOOGLE_FORMS_SYNC_SECRET);
+    if (
+      secretBuffer.length !== expectedBuffer.length ||
+      !crypto.timingSafeEqual(secretBuffer, expectedBuffer)
+    ) {
+      return apiError(res, 'Invalid Google Forms sync secret', 401);
+    }
+
+    const source = req.body?.values && typeof req.body.values === 'object'
+      ? req.body.values
+      : req.body || {};
+
+    const aliases = {
+      name: ['student name', 'full name', 'name', 'student full name'],
+      dob: ['date of birth', 'dob', 'birth date'],
+      gender: ['gender', 'sex'],
+      cls: ['class', 'admission class', 'standard', 'grade'],
+      sec: ['batch', 'section', 'batch number'],
+      father: ["father's name", 'father name', 'father'],
+      mother: ["mother's name", 'mother name', 'mother'],
+      guardian: ['guardian name', 'guardian'],
+      mob: ['mobile number', 'mobile', 'primary mobile', 'phone number', 'phone'],
+      mob2: ['alternate mobile', 'alternate phone', 'secondary mobile', 'mobile 2'],
+      email: ['email address', 'email', 'parent email'],
+      addr: ['address', 'full address', 'home address'],
+      city: ['city', 'town'],
+      pin: ['pin code', 'pincode', 'postal code', 'pin'],
+      blood: ['blood group', 'blood'],
+      category: ['category', 'caste category'],
+      aadhaar: ['aadhaar number', 'aadhaar', 'aadhar number', 'aadhar'],
+      medical: ['medical conditions', 'medical condition', 'allergies', 'medical'],
+      prevschool: ['previous school', 'last school', 'school previously attended'],
+      status: ['status', 'admission status']
+    };
+
+    const normalized = {};
+    for (const [key, value] of Object.entries(source)) {
+      if (key === 'secret' || key === 'values') continue;
+      normalized[String(key).trim().toLowerCase().replace(/\s+/g, ' ')] =
+        Array.isArray(value) ? value.join(', ') : String(value ?? '').trim();
+    }
+
+    const pick = (field) => {
+      for (const alias of aliases[field]) {
+        if (normalized[alias] !== undefined) return normalized[alias];
+      }
+      if (normalized[field] !== undefined) return normalized[field];
+      return '';
+    };
+
+    const student = {
+      name: pick('name'),
+      dob: pick('dob'),
+      gender: pick('gender'),
+      cls: pick('cls'),
+      sec: pick('sec'),
+      father: pick('father'),
+      mother: pick('mother'),
+      guardian: pick('guardian'),
+      mob: pick('mob'),
+      mob2: pick('mob2'),
+      email: pick('email'),
+      addr: pick('addr'),
+      city: pick('city'),
+      pin: pick('pin'),
+      blood: pick('blood'),
+      category: pick('category'),
+      aadhaar: pick('aadhaar'),
+      medical: pick('medical'),
+      prevschool: pick('prevschool'),
+      status: pick('status') || 'active'
+    };
+
+    if (!student.name) return apiError(res, 'Missing student name in Google Form response', 400);
+    if (!student.mob) return apiError(res, 'Missing mobile number in Google Form response', 400);
+
+    const collections = getCollectionsForAdmin(
+      { branch: 'branch1', isSuper: true },
+      'branch1'
+    );
+
+    if (FIREBASE_READY) {
+      const collection = db.collection(collections.students);
+      const existingDoc = await collection.doc(student.name.trim()).get();
+
+      if (!existingDoc.exists) {
+        const snapshot = await collection.get();
+        let maxNumber = 0;
+        snapshot.forEach(doc => {
+          const match = String(doc.data().admno || '').match(/H&HLSTU(\d+)/i);
+          if (match) maxNumber = Math.max(maxNumber, parseInt(match[1], 10));
+        });
+        const number = maxNumber + 1;
+        student.admno = `H&HLSTU${String(number).padStart(3, '0')}`;
+        student.roll = student.admno;
+      } else {
+        const existing = existingDoc.data();
+        student.admno = existing.admno || student.admno || '';
+        student.roll = existing.roll || student.roll || '';
+      }
+
+      await collection.doc(student.name.trim()).set(student, { merge: true });
+      const saved = (await collection.doc(student.name.trim()).get()).data();
+      apiOk(res, { id: student.name.trim(), student: saved });
+    } else {
+      const data = getJsonDb();
+      if (!data.branch1) data.branch1 = { students: [], invoices: [], attendance: {} };
+      const students = data.branch1.students;
+      const index = students.findIndex(item => item.name === student.name.trim());
+
+      if (index === -1) {
+        let maxNumber = 0;
+        students.forEach(item => {
+          const match = String(item.admno || '').match(/H&HLSTU(\d+)/i);
+          if (match) maxNumber = Math.max(maxNumber, parseInt(match[1], 10));
+        });
+        student.admno = `H&HLSTU${String(maxNumber + 1).padStart(3, '0')}`;
+        student.roll = student.admno;
+        students.push({ ...student, id: student.name.trim() });
+      } else {
+        students[index] = {
+          ...students[index],
+          ...student,
+          id: student.name.trim()
+        };
+      }
+
+      saveJsonDb(data);
+      apiOk(res, {
+        id: student.name.trim(),
+        student: students.find(item => item.id === student.name.trim())
+      });
+    }
+  } catch (err) {
+    console.error('[POST /api/google-forms/admission] Error:', err);
+    apiError(res, err.message);
+  }
+});
+
 app.get('/api/students', async (req, res) => {
   try {
     const session = await verifySession(req);
@@ -1254,7 +1494,12 @@ app.post('/api/attendance', async (req, res) => {
 
     if (FIREBASE_READY) {
       await db.collection(collections.attendance).doc(targetDate).set({ lastUpdated: new Date().toISOString() }, { merge: true });
-      await db.collection(collections.attendance).doc(targetDate).collection('students').doc(String(studentId)).set(record, { merge: true });
+      const docRef = db.collection(collections.attendance).doc(targetDate).collection('students').doc(String(studentId));
+      const existingDoc = await docRef.get();
+      if (existingDoc.exists && existingDoc.data().absentMailSent === true) {
+        record.absentMailSent = true;
+      }
+      await docRef.set(record, { merge: true });
     } else {
       const data = getJsonDb();
       const branch = collections.branch;
@@ -1263,27 +1508,44 @@ app.post('/api/attendance', async (req, res) => {
       if (!branchData.attendance[targetDate]) {
         branchData.attendance[targetDate] = {};
       }
+      const existingEntry = branchData.attendance[targetDate][studentId];
+      if (existingEntry?.absentMailSent === true) {
+        record.absentMailSent = true;
+      }
       branchData.attendance[targetDate][studentId] = record;
       saveJsonDb(data);
     }
 
     console.log('========================================');
-    console.log('[POST /api/attendance] Checking status for email...');
+    console.log('[POST /api/attendance] Checking status for notifications...');
     console.log('[POST /api/attendance] Student ID:', studentId);
     console.log('[POST /api/attendance] Status:', status);
     console.log('[POST /api/attendance] status.toLowerCase() === "absent":', status.toLowerCase() === 'absent');
     console.log('[POST /api/attendance] isMailerReady:', isMailerReady);
+    console.log('[POST /api/attendance] hasWhatsAppConfig:', Boolean(WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID));
     
-    if (status.toLowerCase() === 'absent' && isMailerReady) {
-      console.log('[POST /api/attendance] ✅ Sending email!');
-      // Non-blocking email send: don't wait for it!
-      sendParentEmail('absent', { ...student, id: studentId }, { date: targetDate })
-        .catch(err => {
-          console.warn(`[POST /api/attendance] Email sync failed (non-blocking): ${err.message}`);
-          console.warn(err.stack);
-        });
+    if (status.toLowerCase() === 'absent' && record.absentMailSent !== true && (isMailerReady || (WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID))) {
+      console.log('[POST /api/attendance] ✅ Sending parent notifications!');
+      record.absentMailSent = true;
+      if (FIREBASE_READY) {
+        await db.collection(collections.attendance).doc(targetDate).collection('students').doc(String(studentId)).set({ absentMailSent: true }, { merge: true });
+      } else {
+        const data = getJsonDb();
+        const branch = collections.branch;
+        if (data[branch]?.attendance?.[targetDate]?.[studentId]) {
+          data[branch].attendance[targetDate][studentId].absentMailSent = true;
+          saveJsonDb(data);
+        }
+      }
+      Promise.allSettled([
+        isMailerReady ? sendParentEmail('absent', { ...student, id: studentId }, { date: targetDate }) : Promise.resolve(),
+        WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID ? sendParentWhatsApp('absent', { ...student, id: studentId }, { date: targetDate }) : Promise.resolve()
+      ]).catch(err => {
+        console.warn(`[POST /api/attendance] Parent notifications failed (non-blocking): ${err.message}`);
+        console.warn(err.stack);
+      });
     } else {
-      console.log('[POST /api/attendance] ❌ NOT sending email!');
+      console.log('[POST /api/attendance] ❌ NOT sending parent notifications!');
     }
     apiOk(res, { studentId, ...record });
   } catch (err) { apiError(res, err.message); }
@@ -1314,26 +1576,32 @@ app.post('/api/attendance-bulk', async (req, res) => {
         const sDoc = await db.collection(collections.students).doc(String(studentId)).get();
         if (!sDoc.exists) continue;
         const sData = sDoc.data();
+        const docRef = db.collection(collections.attendance).doc(targetDate).collection('students').doc(String(studentId));
+        const existingDoc = await docRef.get();
+        const existingEntry = existingDoc.exists ? existingDoc.data() : {};
 
         const entry = {
           name: sData.name || 'Unknown',
           class: sData.cls || '—',
           status,
           time,
-          date: targetDate
+          date: targetDate,
+          absentMailSent: existingEntry.absentMailSent === true
         };
 
-        const docRef = db.collection(collections.attendance).doc(targetDate).collection('students').doc(String(studentId));
         batch.set(docRef, entry, { merge: true });
         results.push({ studentId, ...entry });
 
         const normalizedStatus = String(status).trim().toLowerCase();
-        if (shouldSendMail && normalizedStatus === 'absent' && isMailerReady) {
-          console.log('[POST /api/attendance-bulk] ✅ Queuing email for absent student:', studentId);
+        if (shouldSendMail && normalizedStatus === 'absent' && !entry.absentMailSent && (isMailerReady || (WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID))) {
+          console.log('[POST /api/attendance-bulk] ✅ Queuing parent notifications for absent student:', studentId);
           const student = { id: sDoc.id, ...sData };
-          mailJobs.push(sendParentEmail('absent', student, { date: targetDate }));
+          if (isMailerReady) mailJobs.push(sendParentEmail('absent', student, { date: targetDate }));
+          if (WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID) mailJobs.push(sendParentWhatsApp('absent', student, { date: targetDate }));
+          entry.absentMailSent = true;
+          batch.set(docRef, { absentMailSent: true }, { merge: true });
         } else {
-          console.log('[POST /api/attendance-bulk] ❌ NOT sending email!');
+          console.log('[POST /api/attendance-bulk] ❌ NOT sending parent notifications!');
         }
       }
       
@@ -1356,22 +1624,26 @@ app.post('/api/attendance-bulk', async (req, res) => {
 
         const student = branchData.students.find(s => s.id == studentId);
         if (!student) continue;
+        const existingEntry = branchData.attendance[targetDate][studentId] || {};
 
         const entry = {
           name: student.name || 'Unknown',
           class: student.cls || '—',
           status,
           time,
-          date: targetDate
+          date: targetDate,
+          absentMailSent: existingEntry.absentMailSent === true
         };
 
         branchData.attendance[targetDate][studentId] = entry;
         results.push({ studentId, ...entry });
 
         const normalizedStatus = String(status).trim().toLowerCase();
-        if (shouldSendMail && normalizedStatus === 'absent' && isMailerReady) {
-          console.log('[POST /api/attendance-bulk] ✅ Queuing email for absent student:', studentId);
-          mailJobs.push(sendParentEmail('absent', student, { date: targetDate }));
+        if (shouldSendMail && normalizedStatus === 'absent' && !entry.absentMailSent && (isMailerReady || (WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID))) {
+          console.log('[POST /api/attendance-bulk] ✅ Queuing parent notifications for absent student:', studentId);
+          if (isMailerReady) mailJobs.push(sendParentEmail('absent', student, { date: targetDate }));
+          if (WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID) mailJobs.push(sendParentWhatsApp('absent', student, { date: targetDate }));
+          entry.absentMailSent = true;
         }
       }
       

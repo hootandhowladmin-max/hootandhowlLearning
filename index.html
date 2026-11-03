@@ -1044,6 +1044,11 @@ body.dark .search-input,body.dark .filter-select{background:var(--paper2);}
   <div style="display:flex;gap:12px;margin-bottom:18px;align-items:center;flex-wrap:wrap">
     <input type="date" class="form-input" id="attDate" style="width:180px" onchange="onAttDateChange()">
     <select class="filter-select" id="attClass" onchange="renderAttendance()"><option value="">All Classes</option></select>
+    <select class="filter-select" id="attBatch" onchange="renderAttendance()">
+      <option value="">All Batches</option>
+      <option value="1">Batch 1</option>
+      <option value="2">Batch 2</option>
+    </select>
     <div class="att-summary" style="margin:0;flex:1">
       <div class="att-chip total"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><span id="att_total">0</span> Total</div>
       <div class="att-chip present"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg><span id="att_present">0</span> Present</div>
@@ -2761,6 +2766,14 @@ function selectStudentForInvoice(id){const s=DB.students.find(st=>st.id==id);if(
 function setAttDate(){const el=document.getElementById('attDate');if(el)el.value=new Date().toISOString().split('T')[0];}
 function getAttDate(){return document.getElementById('attDate')?.value||new Date().toISOString().split('T')[0];}
 function getAttClass(){return document.getElementById('attClass')?.value||'';}
+function getAttBatch(){return document.getElementById('attBatch')?.value||'';}
+function normalizeBatch(value){
+  return String(value||'').trim().replace(/^batch\s*/i,'');
+}
+function getAttendanceStudents(){
+  const cls=getAttClass(),batch=getAttBatch();
+  return DB.students.filter(s=>(!cls||s.cls===cls)&&(!batch||normalizeBatch(s.sec)===batch)&&s.status!=='inactive');
+}
 function updateAttClassFilter(){
   const sel=document.getElementById('attClass');if(!sel)return;
   const cur=sel.value,classes=[...new Set(DB.students.map(s=>s.cls).filter(Boolean))].sort();
@@ -2782,7 +2795,7 @@ async function onAttDateChange(){
 }
 function renderAttendance(){
   const d=getAttDate(),cls=getAttClass(),rec=DB.attendance[d]||{};
-  const students=DB.students.filter(s=>(!cls||s.cls===cls)&&s.status!=='inactive');
+  const students=getAttendanceStudents();
   const grid=document.getElementById('attGrid'),empty=document.getElementById('attEmpty');if(!grid)return;
   if(!students.length){grid.innerHTML='';if(empty)empty.style.display='';updateAttSummary();return;}
   if(empty)empty.style.display='none';
@@ -2792,18 +2805,19 @@ function renderAttendance(){
 function markAtt(sid,status){const d=getAttDate(),att=DB.attendance;if(!att[d])att[d]={};att[d][sid]=att[d][sid]===status?'':status;DB.attendance=att;renderAttendance();}
 function updateAttSummary(){
   const d=getAttDate(),cls=getAttClass(),rec=DB.attendance[d]||{};
-  const students=DB.students.filter(s=>(!cls||s.cls===cls)&&s.status!=='inactive');
+  const students=getAttendanceStudents();
   let p=0,a=0,l=0,lv=0;students.forEach(s=>{const v=rec[s.id];if(v==='present')p++;else if(v==='absent')a++;else if(v==='late')l++;else if(v==='leave')lv++;});
   const total=students.length,pct=total>0?Math.round((p+l)/total*100):0;
   const sv=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
   sv('att_total',total);sv('att_present',p);sv('att_absent',a);sv('att_late',l);sv('att_leave',lv);sv('att_pct',pct+'%');
   const nb=document.getElementById('nb_absent');if(nb){nb.textContent=a;nb.style.display=a>0?'flex':'none';}
 }
-function markAllPresent(){const d=getAttDate(),cls=getAttClass(),att=DB.attendance;if(!att[d])att[d]={};DB.students.filter(s=>(!cls||s.cls===cls)&&s.status!=='inactive').forEach(s=>{att[d][s.id]='present';});DB.attendance=att;renderAttendance();toast('All marked present');}
+function markAllPresent(){const d=getAttDate(),att=DB.attendance;if(!att[d])att[d]={};getAttendanceStudents().forEach(s=>{att[d][s.id]='present';});DB.attendance=att;renderAttendance();toast('All marked present');}
 async function saveAttendance(){
   if (isProcessing) return;
   const d=getAttDate();const rec=DB.attendance[d]||{};
-  const records=Object.entries(rec).filter(([_,v])=>!!v).map(([sid,status])=>({studentId:sid,status}));
+  const selectedIds=new Set(getAttendanceStudents().map(s=>String(s.id)));
+  const records=Object.entries(rec).filter(([sid,v])=>selectedIds.has(String(sid))&&!!v).map(([sid,status])=>({studentId:sid,status}));
   if(!records.length) { toast('No attendance to save', 'warning'); return; }
   
   setProcessing(true);
@@ -2821,7 +2835,8 @@ async function saveAttendance(){
 async function saveAttendanceAndMail(){
   if (isProcessing) return;
   const d=getAttDate();const rec=DB.attendance[d]||{};
-  const records=Object.entries(rec).filter(([_,v])=>!!v).map(([sid,status])=>({studentId:sid,status}));
+  const selectedIds=new Set(getAttendanceStudents().map(s=>String(s.id)));
+  const records=Object.entries(rec).filter(([sid,v])=>selectedIds.has(String(sid))&&!!v).map(([sid,status])=>({studentId:sid,status}));
   if(!records.length) { toast('No attendance to save', 'warning'); return; }
   
   setProcessing(true);
@@ -2875,7 +2890,7 @@ async function exportAttendanceExcel(){
 }
 function exportAttCSV(){const rows=[['Date','Student','Class','Status']];Object.entries(DB.attendance).forEach(([date,rec])=>{Object.entries(rec).forEach(([sid,status])=>{if(!status)return;const s=DB.students.find(st=>st.id==sid);rows.push([date,s?.name||'Unknown',s?.cls||'—',status]);});});exportCSV(rows,'Attendance.csv');}
 function sendBulkWhatsApp(){
-  const d=getAttDate(),rec=DB.attendance[d]||{};const absent=DB.students.filter(s=>rec[s.id]==='absent'&&s.mob);
+  const d=getAttDate(),rec=DB.attendance[d]||{};const absent=getAttendanceStudents().filter(s=>rec[s.id]==='absent'&&s.mob);
   if(!absent.length){toast('No absent students with mobile on '+d,'info');return;}
   document.getElementById('wa_modal_title').textContent='Absence Alerts — '+d;
   document.getElementById('wa_list').innerHTML=absent.map(s=>{const msg=waAbsenceMsg(s.name,d);const url='https://wa.me/'+s.mob.replace(/\D/g,'')+'?text='+encodeURIComponent(msg);return'<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--paper2);border-radius:var(--radius-sm);margin-bottom:8px;border:1px solid var(--border)">'+avatarHtml(s,'sm')+'<div style="flex:1"><div style="font-weight:600;font-size:13px">'+s.name+'</div><div style="font-size:11px;color:var(--ink3)">'+(s.cls||'—')+' · '+s.mob+'</div></div><a href="'+url+'" target="_blank" class="btn btn-success btn-sm">Send</a></div>';}).join('');openModal('waModal');
